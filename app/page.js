@@ -1,9 +1,10 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb } from "lucide-react";
 import dynamic from "next/dynamic";
 const LearningsReview = dynamic(() => import("@/components/LearningsReview"), { ssr: false });
 const ProtocolosViewer = dynamic(() => import("@/components/ProtocolosViewer"), { ssr: false });
+const FixtureBoard = dynamic(() => import("@/components/FixtureBoard"), { ssr: false });
 
 const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
 
@@ -448,7 +449,7 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
-  const [activeView, setActiveView] = useState("workspace"); // workspace | learnings | protocolos
+  const [activeView, setActiveView] = useState("workspace"); // workspace | learnings | protocolos | fixture
 
   const ep = idx >= 0 ? eps[idx] : null;
 
@@ -538,6 +539,10 @@ export default function Home() {
             <BookOpen size={14} style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
             <span style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Protocolos</span>
           </button>
+          <button onClick={() => { setActiveView('fixture'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'fixture' ? "rgba(234,88,12,0.15)" : "transparent" }}>
+            <Lightbulb size={14} style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Fixture</span>
+          </button>
         </div>
         <div className="p-4 border-t border-zinc-800"><p className="text-[10px] text-zinc-600">CMO Stories · v0.4</p></div>
       </div>
@@ -548,6 +553,8 @@ export default function Home() {
           <LearningsReview onBack={() => setActiveView('workspace')} onApplied={() => setLearnings(prev => prev.map(l => l.status === 'draft' ? { ...l, status: 'reviewed' } : l))} />
         ) : activeView === 'protocolos' ? (
           <ProtocolosViewer onBack={() => setActiveView('workspace')} />
+        ) : activeView === 'fixture' ? (
+          <FixtureBoard onBack={() => setActiveView('workspace')} />
         ) : !ep ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: OL }}><FileText size={28} color={O} /></div>
