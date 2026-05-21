@@ -38,6 +38,18 @@ function CopyBtn({ text }) {
   const [ok, s] = useState(false);
   return <button onClick={() => { navigator.clipboard.writeText(text); s(true); setTimeout(() => s(false), 1500); }} className="p-1.5 rounded-lg hover:bg-stone-100 transition-all shrink-0" title="Copiar">{ok ? <Check size={14} color={GR} /> : <Copy size={14} color={MU} />}</button>;
 }
+function BankBtn({ payload }) {
+  const [added, setAdded] = useState(false);
+  const click = async (e) => {
+    e.stopPropagation();
+    if (added) return;
+    await api("/api/ideas", { method: "POST", body: JSON.stringify(payload) });
+    setAdded(true);
+    setTimeout(() => setAdded(false), 2000);
+  };
+  if (added) return <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: GL, color: GR }}><Check size={11} /> Agregado</span>;
+  return <button onClick={click} title="Llevar al banco de ideas" className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg text-stone-500 border border-stone-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors shrink-0"><Lightbulb size={11} /> Al banco</button>;
+}
 function Skel({ n = 3 }) { return <div className="space-y-2.5 py-1">{Array.from({ length: n }).map((_, i) => <div key={i} className="h-3 rounded-md animate-pulse bg-stone-200" style={{ width: `${88 - i * 14}%` }} />)}</div>; }
 function Badge({ label }) {
   const s = ANGLE_TYPES[label] || MINADO_CATS[label] || { bg: "#F4F4F5", c: "#52525B" };
@@ -234,6 +246,7 @@ function ContenidoTab({ ep, phase, onUpdate, onLearn, onGenerate, generatingCont
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap"><p className="text-sm font-medium text-stone-800">{a.titulo}</p><Badge label={a.tipo} /></div>
                 <p className="text-xs text-stone-500">{a.descripcion}</p>
               </div>
+              <BankBtn payload={{ title: a.titulo, description: a.descripcion, category: 'undecided', temperature: 'cold', angle: a.tipo, origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} />
               <span className="text-xs font-medium text-stone-300 shrink-0">{i + 1}</span>
             </div>
             {sel.includes(i) && <div className="px-3 pb-3 ml-8"><input value={angComments[i] || ""} onChange={e => setAngComments({ ...angComments, [i]: e.target.value })} placeholder="Comentario opcional sobre este ángulo..." className="w-full text-xs px-3 py-2 rounded-lg border border-stone-200 bg-white focus:outline-none focus:border-orange-300" onClick={e => e.stopPropagation()} /></div>}
@@ -346,9 +359,9 @@ function RepurposeTab({ ep, onUpdate, onLearn }) {
     {rp?.intros && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎤 Intros leídos</h3>
       <div className="space-y-3">{rp.intros.map((intro, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 flex-wrap"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{intro.titulo}</p><Badge label={intro.formula} /></div>
-          <div className="flex items-center gap-1"><AIEditBtn onClick={() => setEditM({ title: `Intro #${i + 1}`, content: intro.texto, idx: i, type: "intro" })} /><CopyBtn text={intro.texto} /></div>
+        <div className="flex items-center justify-between mb-2 gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{intro.titulo}</p><Badge label={intro.formula} /></div>
+          <div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: intro.titulo || `Intro #${i + 1}`, description: intro.formula, notes: intro.texto, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} /><AIEditBtn onClick={() => setEditM({ title: `Intro #${i + 1}`, content: intro.texto, idx: i, type: "intro" })} /><CopyBtn text={intro.texto} /></div>
         </div>
         <EditableText text={intro.texto} onSave={v => { const n = [...rp.intros]; n[i] = { ...n[i], texto: v }; onUpdate({ repurpose_content: { ...rp, intros: n } }); }} multiline />
       </div>)}</div>
@@ -358,9 +371,9 @@ function RepurposeTab({ ep, onUpdate, onLearn }) {
     {rp?.reels && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎥 Guiones de reel</h3>
       <div className="space-y-3">{rp.reels.map((reel, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 flex-wrap"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{reel.titulo}</p><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">{reel.tipo_gancho}</span></div>
-          <CopyBtn text={reel.guion} />
+        <div className="flex items-center justify-between mb-2 gap-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{reel.titulo}</p><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">{reel.tipo_gancho}</span></div>
+          <div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: reel.titulo || `Reel #${i + 1}`, description: reel.tipo_gancho, notes: reel.guion, formats: ['reel'], category: 'contenido', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name, generated_content: { reel } }} /><CopyBtn text={reel.guion} /></div>
         </div>
         <EditableText text={reel.guion} onSave={v => { const n = [...rp.reels]; n[i] = { ...n[i], guion: v }; onUpdate({ repurpose_content: { ...rp, reels: n } }); }} multiline />
       </div>)}</div>
@@ -370,7 +383,7 @@ function RepurposeTab({ ep, onUpdate, onLearn }) {
     {rp?.linkedin && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-3">📝 Posts de LinkedIn</h3>
       <div className="space-y-3">{rp.linkedin.map((post, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2"><div className="flex items-center gap-2"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{post.patron_hook}</span></div><CopyBtn text={post.cuerpo} /></div>
+        <div className="flex items-center justify-between mb-2 gap-2"><div className="flex items-center gap-2 min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{post.patron_hook}</span></div><div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: (post.hook || '').split('\n')[0].slice(0, 80) || `LinkedIn #${i + 1}`, description: post.patron_hook, notes: post.cuerpo, formats: ['linkedin'], category: 'contenido', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name, generated_content: { linkedin: post } }} /><CopyBtn text={post.cuerpo} /></div></div>
         <EditableText text={post.cuerpo} onSave={v => { const n = [...rp.linkedin]; n[i] = { ...n[i], cuerpo: v }; onUpdate({ repurpose_content: { ...rp, linkedin: n } }); }} multiline />
       </div>)}</div>
     </div>}
@@ -433,7 +446,10 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
             </div>
             {m.sugerencia_caption && <p className="text-[11px] text-stone-400 italic mt-1">Caption: {m.sugerencia_caption}</p>}
           </div>
-          <CopyBtn text={m.cita} />
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <CopyBtn text={m.cita} />
+            <BankBtn payload={{ title: (m.cita || '').slice(0, 80) + ((m.cita || '').length > 80 ? '…' : ''), description: m.por_que_funciona, notes: m.cita, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} />
+          </div>
         </div>
         <div className="mt-2 ml-16"><input value={fb[i] || ""} onChange={e => setFb({ ...fb, [i]: e.target.value })} placeholder="Feedback..." className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300" /></div>
       </div>)}</div>

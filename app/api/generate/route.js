@@ -56,9 +56,9 @@ export async function POST(req) {
     const body = await req.json();
     const { episode_id, phase, prompt, selected_angles, mapa } = body;
 
-    // Simple prompt call (for feedback/regeneration)
+    // Simple prompt call (for feedback/regeneration and fixture generation)
     if (prompt && !phase) {
-      const system = await buildSystem(['adn']);
+      const system = await buildSystem(body.protocols || ['adn']);
       const result = await callClaude(prompt, system + '\n\nREGLA: Responde SOLO con JSON válido. Sin markdown, sin backticks, sin texto adicional.');
       return NextResponse.json({ result });
     }
