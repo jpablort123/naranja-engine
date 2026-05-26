@@ -214,6 +214,15 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 7. Cuando una idea está lista, click "📋 Enviar a la parrilla" → desaparece del Fixture con `status='ready'`
 8. (Próximo paso del flujo, Sprint 4): la idea aparece en la Parrilla para asignarle fecha de publicación
 
+### Ciclo de vida completo de una idea (referencia rápida)
+1. **Nace** — desde un ángulo de episodio ("Al banco"), desde una pieza de Repurpose (intro / reel / LinkedIn), desde un clip de Minado, o creada manual con "+ Nueva idea" en una columna
+2. **Aterriza** — entra al Fixture en `category='undecided'` (Sin definir) con `temperature='cold'` (Frío)
+3. **Se clasifica** — JP la arrastra a Redes Sociales o Newsletter según el formato que vaya a tomar
+4. **Madura** — JP sube su temperatura mientras la cocina (cold → warm → spotlight)
+5. **Se trabaja** — click en la tarjeta abre el panel lateral: notas, prompt, formatos, generación o "Pegar mi versión"
+6. **Sale del Fixture** — "📋 Enviar a la parrilla" → `status='ready'` → desaparece del Kanban
+7. **Se programa y publica** — en la Parrilla (Sprint 4, pendiente): asignar fecha y canal, publicar
+
 ### Fases de la API y qué protocolos se inyectan
 
 **Fase 1 — `angles` (automático al subir transcript):**
@@ -408,8 +417,19 @@ SIEMPRE disponible tanto edición manual directa (click para editar cualquier te
 
 ### Lo que NO se construyó del spec original (decisiones de simplificación)
 - ❌ Temperatura "🔥 Caliente" — eliminada para reducir a 3 niveles más claros (spotlight/warm/cold). Las ideas legacy con `temperature='hot'` se mapean a Tibio en runtime, sin migración destructiva.
-- ❌ Botón "Copiar idea completa con contexto" — removido al rediseñar el panel. Se puede volver a agregar si JP lo necesita para newsletters que sigue escribiendo en Claude directo.
 - ❌ Generar Newsletter desde el Fixture — `newsletter` está en `FORMAT_OPTIONS` (toggle disponible) pero no en `GENERABLE_FORMATS`. Por ahora solo LinkedIn y Reel se generan; newsletter sigue siendo trabajo en Claude.
+
+### Pendiente del spec original (no construido aún, JP lo quiere)
+- 📋 **Botón "Copiar idea completa con contexto"** — genera un bloque markdown con título, descripción, notas, prompt, ángulo, origen y el contenido generado, listo para pegar en Claude. JP lo usa para newsletters que sigue escribiendo en Claude directo. Existía en el spec original del Sprint 3 y se quitó durante la reescritura del panel; pendiente de reagregar.
+
+### Decisiones de UX del Sprint 3 (RESPETAR en sprints futuros)
+- **Paneles laterales tipo Notion, no popups centrados.** JP no le gusta el modal centrado clásico. Cualquier vista de detalle nueva (Parrilla, Chat) debe deslizarse desde la derecha.
+- **Los textareas se sienten como un bloc de notas, no como un formulario.** Tipografía grande (text-base/text-lg), `line-height` generoso, auto-resize con el contenido. Esto aplica a TODO campo de escritura larga del sistema.
+- **Cuando un objeto está abierto, todo se edita desde adentro.** Formatos, temperatura, notas, prompt — sin obligar al usuario a cerrar el panel para tocar algo. Patrón a replicar en la Parrilla cuando se programe una pieza.
+- **JP prefiere ver las cosas en producción (Vercel), no en localhost.** Hacer deploys rápidos por feature en vez de iterar local sin pushear.
+- **Las temperaturas son herramienta de visualización, no estado clickeable.** Los headers de color son la guía; el cambio de temperatura ocurre por drag-and-drop a otra fila o desde el selector dentro del panel. Nada de emojis-botón en la tarjeta.
+- **El orden de las columnas refleja el flujo de la idea.** Llegan a "Sin definir" (izq), se clasifican a "Redes Sociales" o "Newsletter" (centro / der), y cuando están listas salen a la parrilla. Mantener esta semántica izquierda-a-derecha en cualquier rediseño.
+- **"Pegar mi versión" existe porque a veces JP escribe el contenido por fuera del sistema.** El objetivo es doble: (1) que todo el contenido viva en un solo lugar, (2) que el sistema aprenda comparando la versión IA con lo que JP escribió. Patrón a extender a otras secciones donde JP escribe por fuera (newsletter, intros).
 
 ---
 
@@ -475,7 +495,7 @@ La parrilla es la vista de contenido programado para publicación. Cuando JP usa
 - ✅ Navegación por vistas en sidebar (Aprendizajes + Protocolos como items permanentes)
 
 ### Sprint 3 ✅ COMPLETO (v0.5, 26 Mayo 2026)
-- ✅ Fixture Kanban con tres columnas: Sin definir / Redes Sociales / Newsletter
+- ✅ Fixture Kanban con tres columnas: Sin definir (izq) / Redes Sociales (centro) / Newsletter (der) — el orden refleja el flujo de la idea
 - ✅ Temperaturas como filas visuales (💡 Quiere ver la luz / 🌤️ Tibio / ❄️ Frío) — se eliminó 🔥 Caliente
 - ✅ Drag-and-drop de tarjetas entre columnas y entre temperaturas (PUT category/temperature)
 - ✅ Aparear: drop sobre tarjeta del mismo category → modal de confirmación → merge
@@ -485,12 +505,13 @@ La parrilla es la vista de contenido programado para publicación. Cuando JP usa
 - ✅ Layout dos columnas en el panel: notas/prompt (auto-resize, text-base, line-height generoso) + contenido generado
 - ✅ Toggles de formato y temperatura siempre visibles en el header del panel
 - ✅ Cierre del panel siempre disponible: X + overlay + Escape (incluso después de generar)
-- ✅ Generación de contenido desde la idea (LinkedIn + Reel) con "Editar con IA" en cada pieza
+- ✅ Generación de contenido desde la idea (LinkedIn + Reel) con **"Editar con IA" en cada pieza generada — diferenciador principal del producto**
 - ✅ "Llevar al banco" desde ángulos, Repurpose (intros / reels / LinkedIn) y Minado en el workspace de episodios
 - ✅ "📋 Enviar a la parrilla": PUT status='ready', idea sale del Fixture con feedback verde "Enviada a la parrilla"
 - ✅ "📝 Pegar mi versión" con creación automática de learning draft (AI vs manual) — aprendizaje sin prompt
+- 📋 Pendiente del Sprint 3: botón "Copiar idea completa con contexto" (bloque markdown listo para pegar en Claude) — se quitó al rediseñar el panel, JP lo sigue queriendo
 
-### Sprint 4 — Parrilla / Calendario editorial (SIGUIENTE)
+### Sprint 4 o 5 — Parrilla / Calendario editorial (PENDIENTE)
 - Vista de calendario o grid semanal de contenido programado
 - Asignar fechas de publicación a ideas con `status='ready'`
 - Estados nuevos: ready → scheduled → published
@@ -498,10 +519,12 @@ La parrilla es la vista de contenido programado para publicación. Cuando JP usa
 - Ver huecos en la parrilla por canal (LinkedIn / Reel / Newsletter)
 - Decidir integración con herramientas externas vs flujo manual
 
-### Sprint 5 — Chat embebido + pulido
+### Sprint 4 o 5 — Chat embebido + pulido (PENDIENTE)
 - Panel lateral con contexto automático (episodio / idea / protocolo / slot de parrilla)
 - Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio", "Programar en parrilla")
 - Pulido general
+
+> **Orden entre Parrilla y Chat por definir.** Ambos son candidatos al Sprint 4. La Parrilla es el cierre natural del flujo iniciado por "Enviar a la parrilla" del Fixture (sin ella las ideas con `status='ready'` quedan en el aire). El Chat embebido acelera todo lo demás. JP decide el orden cuando arranque el próximo sprint.
 
 ### Futuro
 - Métricas reales de redes → alimentan protocolos automáticamente
