@@ -1,23 +1,25 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Lightbulb, Plus, Loader2, X, Copy, Check, Sparkles, CheckCircle2 } from "lucide-react";
 
 const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
 
 const COLUMNS = [
-  { key: "newsletter", label: "Newsletter", emoji: "📨", hint: "Ideas largas para escribir" },
-  { key: "contenido",  label: "Contenido",  emoji: "📱", hint: "LinkedIn + Reel" },
-  { key: "undecided",  label: "Sin definir", emoji: "💭", hint: "Por decidir formato" },
+  { key: "undecided",  label: "Sin definir",    emoji: "💭" },
+  { key: "contenido",  label: "Redes Sociales", emoji: "📱" },
+  { key: "newsletter", label: "Newsletter",     emoji: "📨" },
 ];
 
-const TEMPERATURES = ["spotlight", "hot", "warm", "cold"];
-const TEMP_META = {
-  spotlight: { emoji: "💡", label: "Quiere ver la luz", order: 0 },
-  hot:       { emoji: "🔥", label: "Caliente",          order: 1 },
-  warm:      { emoji: "🌤️", label: "Tibio",             order: 2 },
-  cold:      { emoji: "❄️", label: "Frío",              order: 3 },
+const TEMP_SECTIONS = [
+  { key: "spotlight", emoji: "💡", label: "Quiere ver la luz", bg: "#ECFDF5", c: "#15803D", border: "#BBF7D0" },
+  { key: "warm",      emoji: "🌤️", label: "Tibio",             bg: "#FAF5FF", c: "#7C3AED", border: "#E9D5FF" },
+  { key: "cold",      emoji: "❄️", label: "Frío",              bg: "#F1F5F9", c: "#475569", border: "#E2E8F0" },
+];
+const TEMP_KEYS = TEMP_SECTIONS.map(t => t.key);
+const normalizeTemp = (t) => {
+  if (t === "hot") return "warm";
+  return TEMP_KEYS.includes(t) ? t : "cold";
 };
-const nextTemp = (t) => TEMPERATURES[(TEMPERATURES.indexOf(t || "cold") + 1) % TEMPERATURES.length];
 
 const FORMAT_OPTIONS = [
   { key: "linkedin",   label: "LinkedIn" },
@@ -40,6 +42,36 @@ const ANGLE_TYPES = {
   barrera_emocional:    { bg: "#FEF2F2", c: "#DC2626", label: "Barrera emocional" },
   historia_personal:    { bg: "#F5F3FF", c: "#6D28D9", label: "Historia personal" },
 };
+
+function useEscape(handler) {
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") handler(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [handler]);
+}
+
+function AutoTextarea({ value, onChange, onBlur, placeholder, className = "", minHeight = 100, autoFocus }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.max(el.scrollHeight, minHeight) + "px";
+  }, [value, minHeight]);
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      className={className}
+      style={{ minHeight }}
+    />
+  );
+}
 
 function InlineTitle({ value, onSave }) {
   const [editing, setEditing] = useState(false);
@@ -99,9 +131,10 @@ function EditAIModal({ title, content, onClose, onApply }) {
   const [fb, setFb] = useState("");
   const [applying, setApplying] = useState(false);
   const [done, setDone] = useState(false);
+  useEscape(onClose);
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+    <div onClick={onClose} className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
           <h3 className="font-semibold text-stone-800">{title}</h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
@@ -130,24 +163,26 @@ function EditAIModal({ title, content, onClose, onApply }) {
   );
 }
 
-function NewIdeaModal({ onClose, onCreate }) {
+function NewIdeaModal({ initialCategory, onClose, onCreate }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("undecided");
   const [submitting, setSubmitting] = useState(false);
+  useEscape(onClose);
+
+  const cat = COLUMNS.find(c => c.key === initialCategory) || COLUMNS[0];
 
   const submit = async () => {
     if (!title.trim() || submitting) return;
     setSubmitting(true);
-    await onCreate({ title: title.trim(), description: description.trim() || null, category });
+    await onCreate({ title: title.trim(), description: description.trim() || null, category: cat.key });
     setSubmitting(false);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+    <div onClick={onClose} className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
         <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h3 className="font-semibold text-stone-800">Nueva idea</h3>
+          <h3 className="font-semibold text-stone-800">Nueva idea en {cat.emoji} {cat.label}</h3>
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
         </div>
         <div className="p-6 space-y-4">
@@ -159,12 +194,6 @@ function NewIdeaModal({ onClose, onCreate }) {
             <label className="text-sm font-medium text-stone-600 block mb-1.5">Descripción <span className="text-stone-400 font-normal">(opcional)</span></label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Un párrafo breve para vos mismo..." className="w-full px-4 py-2.5 text-sm border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 resize-y" />
           </div>
-          <div>
-            <label className="text-sm font-medium text-stone-600 block mb-1.5">Categoría</label>
-            <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-4 py-2.5 text-sm border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 bg-white">
-              {COLUMNS.map(c => <option key={c.key} value={c.key}>{c.emoji} {c.label}</option>)}
-            </select>
-          </div>
           <button onClick={submit} disabled={!title.trim() || submitting} className="w-full py-3 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center justify-center gap-2" style={{ background: title.trim() && !submitting ? O : "#D6D3D1", cursor: title.trim() && !submitting ? "pointer" : "not-allowed" }}>
             {submitting ? <><Loader2 size={14} className="animate-spin" /> Creando...</> : "Crear idea"}
           </button>
@@ -175,9 +204,10 @@ function NewIdeaModal({ onClose, onCreate }) {
 }
 
 function MergeModal({ source, target, onConfirm, onCancel }) {
+  useEscape(onCancel);
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}>
-      <div className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+    <div onClick={onCancel} className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
         <h3 className="font-semibold text-stone-800 mb-2">¿Fusionar estas ideas?</h3>
         <p className="text-sm text-stone-500 mb-4 leading-relaxed">La idea destino absorberá descripción, notas y formatos. La fuente queda archivada.</p>
         <div className="space-y-2 mb-5">
@@ -200,19 +230,54 @@ function MergeModal({ source, target, onConfirm, onCancel }) {
   );
 }
 
-function GeneratedBox({ format, content, onCopy, onEdit }) {
+function PasteVersionModal({ format, aiBody, onClose, onSave }) {
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  useEscape(onClose);
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-[70] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h3 className="font-semibold text-stone-800">📝 Pegar tu versión — {format === "linkedin" ? "LinkedIn" : "Reel"}</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
+        </div>
+        <div className="p-6 flex-1 overflow-y-auto">
+          <p className="text-xs text-stone-500 mb-3">Pegá el texto que escribiste por fuera del sistema. Se guarda como tu versión y el sistema aprende comparándola con la versión de la IA.</p>
+          {aiBody && (
+            <div className="mb-3 rounded-xl border border-stone-200 bg-stone-50 p-3 max-h-32 overflow-y-auto">
+              <p className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mb-1.5">Versión IA (referencia)</p>
+              <p className="text-xs text-stone-600 whitespace-pre-wrap leading-relaxed">{aiBody}</p>
+            </div>
+          )}
+          <textarea autoFocus value={text} onChange={e => setText(e.target.value)} rows={12} placeholder="Pegá acá tu versión..." className="w-full px-4 py-3 text-sm border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 leading-relaxed resize-y" />
+        </div>
+        <div className="px-6 py-4 border-t border-stone-200 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100">Cancelar</button>
+          <button onClick={async () => { if (!text.trim() || saving) return; setSaving(true); await onSave(text); setSaving(false); onClose(); }} disabled={!text.trim() || saving} className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center justify-center gap-2" style={{ background: text.trim() ? O : "#D6D3D1", cursor: text.trim() ? "pointer" : "not-allowed" }}>
+            {saving ? <><Loader2 size={14} className="animate-spin" /> Guardando...</> : "Guardar mi versión"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GeneratedBox({ format, content, onEdit, onPaste }) {
   const FORMAT_META = {
-    linkedin: { emoji: "📝", label: "LinkedIn", body: content?.cuerpo, badgeKey: "patron_hook", badgeBg: "#EFF6FF", badgeC: "#1E40AF" },
-    reel:     { emoji: "🎥", label: "Reel",     body: content?.guion,  badgeKey: "tipo_gancho", badgeBg: "#F5F3FF", badgeC: "#6D28D9" },
+    linkedin: { emoji: "📝", label: "LinkedIn", bodyKey: "cuerpo", badgeKey: "patron_hook", badgeBg: "#EFF6FF", badgeC: "#1E40AF" },
+    reel:     { emoji: "🎥", label: "Reel",     bodyKey: "guion",  badgeKey: "tipo_gancho", badgeBg: "#F5F3FF", badgeC: "#6D28D9" },
   }[format];
   if (!FORMAT_META || !content) return null;
-  const body = FORMAT_META.body || "";
+  const body = content[FORMAT_META.bodyKey] || "";
+  const isManual = content.source === "manual";
   return (
-    <div className="rounded-xl border border-stone-200 p-4 bg-stone-50/40">
+    <div className="rounded-xl border border-stone-200 p-4 bg-white">
       <div className="flex items-center justify-between mb-2 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <p className="text-sm font-semibold text-stone-800 shrink-0">{FORMAT_META.emoji} {FORMAT_META.label}</p>
           {content[FORMAT_META.badgeKey] && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full" style={{ background: FORMAT_META.badgeBg, color: FORMAT_META.badgeC }}>{content[FORMAT_META.badgeKey]}</span>}
+          {isManual && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">✍️ Tu versión</span>}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <AIEditButton onClick={onEdit} />
@@ -222,6 +287,11 @@ function GeneratedBox({ format, content, onCopy, onEdit }) {
       {content.titulo && <p className="text-sm font-medium text-stone-800 mb-1">{content.titulo}</p>}
       {content.hook && <p className="text-sm font-medium text-stone-700 mb-1">{content.hook}</p>}
       <p className="text-sm text-stone-700 whitespace-pre-wrap leading-relaxed">{body}</p>
+      <div className="mt-3 pt-3 border-t border-stone-100 flex justify-end">
+        <button onClick={(e) => { e.stopPropagation(); onPaste(); }} className="text-[11px] font-medium text-stone-500 hover:text-orange-600 flex items-center gap-1">
+          📝 Pegar mi versión
+        </button>
+      </div>
     </div>
   );
 }
@@ -253,20 +323,40 @@ async function callGenerate(prompt, protocols) {
   return d.result;
 }
 
-function IdeaModal({ idea, onClose, onUpdate }) {
+function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
   const [notes, setNotes] = useState(idea.notes || "");
   const [promptNotes, setPromptNotes] = useState(idea.prompt_notes || "");
   const [generating, setGenerating] = useState(null);
   const [editM, setEditM] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [pasteM, setPasteM] = useState(null);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const formats = Array.isArray(idea.formats) ? idea.formats : [];
   const targets = formats.filter(f => GENERABLE_FORMATS.includes(f));
   const gen = idea.generated_content || {};
+  const hasGenerated = Object.keys(gen).length > 0;
   const angleStyle = idea.angle ? ANGLE_TYPES[idea.angle] : null;
+  const currentTemp = normalizeTemp(idea.temperature);
+
+  useEffect(() => {
+    if (editM || pasteM || confirmSend) return; // let nested handle escape
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose, editM, pasteM, confirmSend]);
 
   const saveNotes = () => { if (notes !== (idea.notes || "")) onUpdate({ notes: notes || null }); };
   const savePrompt = () => { if (promptNotes !== (idea.prompt_notes || "")) onUpdate({ prompt_notes: promptNotes || null }); };
+
+  const toggleFormat = (key) => {
+    const next = formats.includes(key) ? formats.filter(f => f !== key) : [...formats, key];
+    onUpdate({ formats: next });
+  };
+
+  const setTemperature = (t) => {
+    if (normalizeTemp(idea.temperature) !== t) onUpdate({ temperature: t });
+  };
 
   const generateAll = async () => {
     if (targets.length === 0) return;
@@ -294,88 +384,197 @@ function IdeaModal({ idea, onClose, onUpdate }) {
     if (result) onUpdate({ generated_content: { ...gen, [format]: result } });
   };
 
-  const copyFullContext = () => {
-    const parts = [`# ${idea.title}`];
-    if (idea.description) parts.push(`\n${idea.description}`);
-    if (notes) parts.push(`\n## Notas\n${notes}`);
-    if (promptNotes) parts.push(`\n## Prompt\n${promptNotes}`);
-    if (idea.angle) parts.push(`\n**Tipo de ángulo:** ${idea.angle}`);
-    if (idea.origin_id) parts.push(`\n**Origen:** episodio "${idea.origin_url || idea.origin_id}"`);
-    if (gen.linkedin?.cuerpo) parts.push(`\n## LinkedIn generado\n${gen.linkedin.cuerpo}`);
-    if (gen.reel?.guion) parts.push(`\n## Reel generado\n${gen.reel.titulo || ""}\n${gen.reel.guion}`);
-    navigator.clipboard.writeText(parts.join("\n"));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const saveManualVersion = async (format, manualText) => {
+    const ai = gen[format] || {};
+    const bodyKey = format === "linkedin" ? "cuerpo" : "guion";
+    const aiBody = ai[bodyKey] || "";
+    const updated = { ...ai, [bodyKey]: manualText, source: "manual" };
+    onUpdate({ generated_content: { ...gen, [format]: updated } });
+
+    // Crear learning draft solo si hay versión IA con la que comparar
+    if (aiBody.trim()) {
+      try {
+        await fetch("/api/learnings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            episode_id: idea.origin_id || null,
+            section: format === "linkedin" ? "linkedin" : "reels",
+            original_content: aiBody,
+            feedback: `JP reescribió la versión generada para la idea "${idea.title}". Versión final:\n\n${manualText}`,
+            target_protocol_name: format === "linkedin" ? "linkedin" : "reels",
+          }),
+        });
+      } catch (_) { /* non-fatal */ }
+    }
+  };
+
+  const sendToGrid = () => {
+    setConfirmSend(false);
+    setSent(true);
+    onUpdate({ status: "ready" });
+    setTimeout(() => { onSent(); }, 1800);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[88vh] overflow-hidden flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200 gap-3">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <h3 className="font-semibold text-stone-800 truncate text-base">{idea.title}</h3>
+    <>
+      <div onClick={onClose} className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }} />
+      <div className="fixed top-0 right-0 bottom-0 z-50 bg-white shadow-2xl flex flex-col" style={{ width: "60vw", minWidth: 560 }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-8 py-5 border-b border-stone-200 gap-3 shrink-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+            <h3 className="font-semibold text-stone-800 text-base truncate">{idea.title}</h3>
             {angleStyle && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full shrink-0" style={{ background: angleStyle.bg, color: angleStyle.c }}>{angleStyle.label}</span>}
             {idea.origin_id && <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 shrink-0">🎙️ Desde episodio</span>}
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100 shrink-0"><X size={18} color={MU} /></button>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-stone-100 shrink-0" title="Cerrar (Esc)"><X size={20} color={MU} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-5">
-          {idea.description && <p className="text-sm text-stone-600 leading-relaxed">{idea.description}</p>}
+        {/* Controls bar */}
+        <div className="px-8 py-3 border-b border-stone-200 bg-stone-50/60 flex items-center justify-between flex-wrap gap-3 shrink-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mr-1">Formatos</span>
+            {FORMAT_OPTIONS.map(f => {
+              const on = formats.includes(f.key);
+              return (
+                <button key={f.key} onClick={() => toggleFormat(f.key)}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors"
+                  style={{
+                    background: on ? OL : "white",
+                    color: on ? O : "#A8A29E",
+                    border: `1px solid ${on ? OB : "#E7E5E4"}`,
+                  }}>
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-widest text-stone-400 font-medium mr-1">Temperatura</span>
+            {TEMP_SECTIONS.map(t => {
+              const on = currentTemp === t.key;
+              return (
+                <button key={t.key} onClick={() => setTemperature(t.key)}
+                  className="text-[11px] font-medium px-2.5 py-1 rounded-md transition-colors flex items-center gap-1"
+                  style={{
+                    background: on ? t.bg : "white",
+                    color: on ? t.c : "#A8A29E",
+                    border: `1px solid ${on ? t.border : "#E7E5E4"}`,
+                  }}>
+                  <span>{t.emoji}</span> {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-400 font-medium block mb-1.5">Notas</label>
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveNotes} rows={4}
-                      placeholder="Ideas sueltas, conexiones, comentarios de Daniela..."
-                      className="w-full px-4 py-3 text-sm border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 resize-y leading-relaxed" />
+        {/* Body — two columns */}
+        <div className="flex-1 overflow-hidden flex">
+          {/* Left column: notes + prompt */}
+          <div className={`${hasGenerated ? "w-1/2 border-r border-stone-200" : "w-full"} overflow-y-auto p-8 space-y-5`}>
+            {idea.description && <p className="text-base text-stone-600 leading-relaxed">{idea.description}</p>}
+
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-stone-400 font-medium block mb-2">Notas</label>
+              <AutoTextarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                onBlur={saveNotes}
+                placeholder="Ideas sueltas, conexiones, comentarios de Daniela..."
+                minHeight={220}
+                className="w-full px-5 py-4 text-base border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 leading-[1.75] resize-none"
+              />
+            </div>
+
+            <div>
+              <label className="text-[10px] uppercase tracking-widest text-stone-400 font-medium block mb-2">Prompt</label>
+              <AutoTextarea
+                value={promptNotes}
+                onChange={e => setPromptNotes(e.target.value)}
+                onBlur={savePrompt}
+                placeholder="¿Cómo imaginás el contenido? Tono, ángulo, ejemplos..."
+                minHeight={140}
+                className="w-full px-5 py-4 text-base border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 leading-[1.75] resize-none"
+              />
+            </div>
+
+            <div className="space-y-3">
+              {targets.length === 0 ? (
+                <p className="text-xs text-stone-400 italic">Activá LinkedIn o Reel arriba para generar contenido.</p>
+              ) : (
+                <button onClick={generateAll} disabled={generating !== null}
+                  className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90"
+                  style={{ background: O, opacity: generating !== null ? 0.7 : 1 }}>
+                  {generating !== null ? <><Loader2 size={14} className="animate-spin" /> Generando {targets.join(" + ")}...</> : <><Sparkles size={14} /> Generar contenido ({targets.join(" + ")})</>}
+                </button>
+              )}
+              {!hasGenerated && targets.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[10px] uppercase tracking-widest text-stone-400 font-medium">o pegá tu propia versión</p>
+                  {targets.map(fmt => (
+                    <button key={fmt} onClick={() => setPasteM({ format: fmt })}
+                      className="w-full py-2.5 rounded-xl text-xs font-medium border border-stone-200 hover:bg-stone-50 text-stone-600 flex items-center justify-center gap-1.5">
+                      📝 Pegar mi versión de {fmt === "linkedin" ? "LinkedIn" : "Reel"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
-          <div>
-            <label className="text-[10px] uppercase tracking-widest text-stone-400 font-medium block mb-1.5">Prompt</label>
-            <textarea value={promptNotes} onChange={e => setPromptNotes(e.target.value)} onBlur={savePrompt} rows={3}
-                      placeholder="¿Cómo imaginás el contenido? Tono, ángulo, ejemplos..."
-                      className="w-full px-4 py-3 text-sm border border-stone-200 rounded-xl focus:outline-none focus:border-orange-300 resize-y leading-relaxed" />
-          </div>
+          {/* Right column: generated content */}
+          {hasGenerated && (
+            <div className="w-1/2 overflow-y-auto p-8 space-y-4 bg-stone-50/40">
+              <p className="text-[10px] uppercase tracking-widest text-stone-400 font-medium">Contenido</p>
+              {gen.linkedin && <GeneratedBox format="linkedin" content={gen.linkedin}
+                onEdit={() => setEditM({ format: "linkedin", title: "LinkedIn", content: gen.linkedin.cuerpo || "" })}
+                onPaste={() => setPasteM({ format: "linkedin" })} />}
+              {gen.reel && <GeneratedBox format="reel" content={gen.reel}
+                onEdit={() => setEditM({ format: "reel", title: "Reel", content: `${gen.reel.titulo || ""}\n\n${gen.reel.guion || ""}` })}
+                onPaste={() => setPasteM({ format: "reel" })} />}
+            </div>
+          )}
+        </div>
 
-          <div>
-            {targets.length === 0 ? (
-              <p className="text-xs text-stone-400 italic">Activá LinkedIn o Reel en la tarjeta para generar contenido.</p>
-            ) : (
-              <button onClick={generateAll} disabled={generating !== null}
-                      className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90"
-                      style={{ background: O, opacity: generating !== null ? 0.7 : 1 }}>
-                {generating !== null ? <><Loader2 size={14} className="animate-spin" /> Generando {targets.join(" + ")}...</> : <><Sparkles size={14} /> Generar contenido ({targets.join(" + ")})</>}
+        {/* Footer */}
+        <div className="border-t border-stone-200 px-8 py-4 flex items-center gap-3 shrink-0">
+          {sent ? (
+            <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: GL, color: GR }}>
+              <CheckCircle2 size={16} /> Enviada a la parrilla
+            </div>
+          ) : confirmSend ? (
+            <>
+              <p className="flex-1 text-sm text-stone-600">¿Enviar a la parrilla? Saldrá del Fixture.</p>
+              <button onClick={() => setConfirmSend(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100">Cancelar</button>
+              <button onClick={sendToGrid} className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>Confirmar</button>
+            </>
+          ) : (
+            <>
+              <div className="flex-1" />
+              <button onClick={() => setConfirmSend(true)}
+                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
+                style={{ background: O }}>
+                📋 Enviar a la parrilla
               </button>
-            )}
-          </div>
-
-          {gen.linkedin && <GeneratedBox format="linkedin" content={gen.linkedin} onEdit={() => setEditM({ format: "linkedin", title: "LinkedIn", content: gen.linkedin.cuerpo || "" })} />}
-          {gen.reel && <GeneratedBox format="reel" content={gen.reel} onEdit={() => setEditM({ format: "reel", title: "Reel", content: `${gen.reel.titulo || ""}\n\n${gen.reel.guion || ""}` })} />}
-
-          <div className="pt-2 border-t border-stone-100">
-            <button onClick={copyFullContext}
-                    className="w-full py-2.5 rounded-xl text-sm font-medium border border-stone-200 hover:bg-stone-50 flex items-center justify-center gap-2"
-                    style={{ color: copied ? GR : "#57534E", borderColor: copied ? "#BBF7D0" : "#E7E5E4", background: copied ? GL : "white" }}>
-              {copied ? <><Check size={14} /> Copiado al portapapeles</> : <><Copy size={14} /> Copiar idea completa con contexto</>}
-            </button>
-          </div>
+            </>
+          )}
         </div>
       </div>
+
       {editM && <EditAIModal title={editM.title} content={editM.content} onClose={() => setEditM(null)}
-                             onApply={async fb => { await editGenerated(editM.format, fb); setEditM(null); }} />}
-    </div>
+        onApply={async fb => { await editGenerated(editM.format, fb); setEditM(null); }} />}
+      {pasteM && <PasteVersionModal
+        format={pasteM.format}
+        aiBody={pasteM.format === "linkedin" ? (gen.linkedin?.cuerpo || "") : (gen.reel?.guion || "")}
+        onClose={() => setPasteM(null)}
+        onSave={async (text) => { await saveManualVersion(pasteM.format, text); }} />}
+    </>
   );
 }
 
 function IdeaCard({ idea, onUpdate, onOpen, onDragStart, onDragEnd, onCardDragOver, onCardDrop, dragging, mergeHint }) {
-  const temp = TEMP_META[idea.temperature] || TEMP_META.cold;
   const angleStyle = idea.angle ? ANGLE_TYPES[idea.angle] : null;
   const formats = Array.isArray(idea.formats) ? idea.formats : [];
-
-  const toggleFormat = (key) => {
-    const next = formats.includes(key) ? formats.filter(f => f !== key) : [...formats, key];
-    onUpdate({ formats: next });
-  };
 
   return (
     <div
@@ -392,16 +591,9 @@ function IdeaCard({ idea, onUpdate, onOpen, onDragStart, onDragEnd, onCardDragOv
         boxShadow: mergeHint ? `0 0 0 2px ${OB}` : undefined,
       }}
     >
-      <div className="flex items-start gap-2 mb-2">
-        <button
-          onClick={(e) => { e.stopPropagation(); onUpdate({ temperature: nextTemp(idea.temperature) }); }}
-          title={temp.label}
-          className="text-base leading-none mt-0.5 hover:scale-110 transition-transform shrink-0"
-        >{temp.emoji}</button>
-        <div className="flex-1 min-w-0">
-          <InlineTitle value={idea.title} onSave={v => onUpdate({ title: v })} />
-          {idea.description && <p className="text-xs text-stone-500 mt-1 leading-snug line-clamp-2">{idea.description}</p>}
-        </div>
+      <div className="mb-2">
+        <InlineTitle value={idea.title} onSave={v => onUpdate({ title: v })} />
+        {idea.description && <p className="text-xs text-stone-500 mt-1 leading-snug line-clamp-2">{idea.description}</p>}
       </div>
 
       {(angleStyle || idea.origin_id) && (
@@ -411,22 +603,19 @@ function IdeaCard({ idea, onUpdate, onOpen, onDragStart, onDragEnd, onCardDragOv
         </div>
       )}
 
-      <div className="flex items-center gap-1 flex-wrap pt-2 border-t border-stone-100">
-        {FORMAT_OPTIONS.map(f => {
-          const on = formats.includes(f.key);
-          return (
-            <button key={f.key} onClick={(e) => { e.stopPropagation(); toggleFormat(f.key); }}
-              className="text-[10px] font-medium px-2 py-1 rounded-md transition-colors"
-              style={{
-                background: on ? OL : "transparent",
-                color: on ? O : "#A8A29E",
-                border: `1px solid ${on ? OB : "#E7E5E4"}`,
-              }}>
-              {f.label}
-            </button>
-          );
-        })}
-      </div>
+      {formats.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap pt-2 border-t border-stone-100">
+          {formats.map(fkey => {
+            const f = FORMAT_OPTIONS.find(o => o.key === fkey);
+            if (!f) return null;
+            return (
+              <span key={fkey} className="text-[10px] font-medium px-2 py-0.5 rounded-md" style={{ background: OL, color: O, border: `1px solid ${OB}` }}>
+                {f.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -434,10 +623,10 @@ function IdeaCard({ idea, onUpdate, onOpen, onDragStart, onDragEnd, onCardDragOv
 export default function FixtureBoard() {
   const [ideas, setIdeas] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
+  const [newIdeaCol, setNewIdeaCol] = useState(null);
   const [openIdeaId, setOpenIdeaId] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
-  const [dragOverCol, setDragOverCol] = useState(null);
+  const [dragOverSection, setDragOverSection] = useState(null); // "col-temp"
   const [dragOverCard, setDragOverCard] = useState(null);
   const [mergeRequest, setMergeRequest] = useState(null);
 
@@ -453,7 +642,7 @@ export default function FixtureBoard() {
     const newIdea = await r.json();
     if (newIdea && !newIdea.error) {
       setIdeas(prev => [...prev, newIdea]);
-      setShowModal(false);
+      setNewIdeaCol(null);
     }
   };
 
@@ -462,13 +651,18 @@ export default function FixtureBoard() {
     fetch("/api/ideas", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
   };
 
-  const handleColumnDrop = (columnKey) => {
+  const handleSectionDrop = (columnKey, tempKey) => {
     if (!draggingId) return;
-    if (dragOverCard) { setDraggingId(null); setDragOverCol(null); setDragOverCard(null); return; }
+    if (dragOverCard) { setDraggingId(null); setDragOverSection(null); setDragOverCard(null); return; }
     const idea = ideas.find(i => i.id === draggingId);
-    if (idea && idea.category !== columnKey) updateIdea(draggingId, { category: columnKey });
+    if (idea) {
+      const patch = {};
+      if (idea.category !== columnKey) patch.category = columnKey;
+      if (normalizeTemp(idea.temperature) !== tempKey) patch.temperature = tempKey;
+      if (Object.keys(patch).length > 0) updateIdea(draggingId, patch);
+    }
     setDraggingId(null);
-    setDragOverCol(null);
+    setDragOverSection(null);
   };
 
   const handleCardDragOver = (e, target) => {
@@ -490,7 +684,7 @@ export default function FixtureBoard() {
     setMergeRequest({ source: dragged, target });
     setDraggingId(null);
     setDragOverCard(null);
-    setDragOverCol(null);
+    setDragOverSection(null);
   };
 
   const confirmMerge = () => {
@@ -505,16 +699,16 @@ export default function FixtureBoard() {
     setMergeRequest(null);
   };
 
-  const visibleIdeas = ideas.filter(i => i.status !== "merged");
+  const visibleIdeas = ideas.filter(i => i.status !== "merged" && i.status !== "ready");
+
+  // Group by column → temperature
   const grouped = COLUMNS.reduce((acc, col) => {
-    acc[col.key] = visibleIdeas
-      .filter(i => (i.category || "undecided") === col.key)
-      .sort((a, b) => {
-        const oa = (TEMP_META[a.temperature] || TEMP_META.cold).order;
-        const ob = (TEMP_META[b.temperature] || TEMP_META.cold).order;
-        if (oa !== ob) return oa - ob;
-        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
-      });
+    acc[col.key] = TEMP_SECTIONS.reduce((tacc, t) => {
+      tacc[t.key] = visibleIdeas
+        .filter(i => (i.category || "undecided") === col.key && normalizeTemp(i.temperature) === t.key)
+        .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      return tacc;
+    }, {});
     return acc;
   }, {});
 
@@ -522,14 +716,9 @@ export default function FixtureBoard() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-stone-900 flex items-center gap-2"><Lightbulb size={20} color={O} /> Banco de ideas</h1>
-          <p className="text-xs text-stone-500 mt-1">Fixture editorial. Calienta lo que importa, archiva el resto.</p>
-        </div>
-        <button onClick={() => setShowModal(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-white hover:opacity-90" style={{ background: O }}>
-          <Plus size={14} /> Nueva idea
-        </button>
+      <div className="mb-6">
+        <h1 className="text-xl font-bold text-stone-900 flex items-center gap-2"><Lightbulb size={20} color={O} /> Banco de ideas</h1>
+        <p className="text-xs text-stone-500 mt-1">Fixture editorial. Calienta lo que importa, archiva el resto.</p>
       </div>
 
       {loading ? (
@@ -539,56 +728,75 @@ export default function FixtureBoard() {
       ) : (
         <div className="grid grid-cols-3 gap-4">
           {COLUMNS.map(col => {
-            const items = grouped[col.key] || [];
-            const isOver = dragOverCol === col.key && draggingId && !dragOverCard;
+            const colItems = grouped[col.key] || {};
+            const totalItems = TEMP_SECTIONS.reduce((sum, t) => sum + (colItems[t.key]?.length || 0), 0);
             return (
-              <div
-                key={col.key}
-                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverCol !== col.key) setDragOverCol(col.key); }}
-                onDrop={(e) => { e.preventDefault(); handleColumnDrop(col.key); }}
-                className="rounded-xl border p-4 min-h-[60vh] flex flex-col transition-colors"
-                style={{ borderColor: isOver ? O : "#E7E5E4", background: isOver ? OL : "white" }}
-              >
-                <div className="flex items-center justify-between mb-4 pb-3 border-b border-stone-100">
+              <div key={col.key} className="rounded-xl border border-stone-200 bg-white p-3 flex flex-col">
+                <div className="flex items-center justify-between mb-3 px-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="text-base">{col.emoji}</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-stone-800 truncate">{col.label}</p>
-                      <p className="text-[10px] text-stone-400 truncate">{col.hint}</p>
-                    </div>
+                    <p className="text-sm font-semibold text-stone-800 truncate">{col.label}</p>
                   </div>
-                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 shrink-0">{items.length}</span>
+                  <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-500 shrink-0">{totalItems}</span>
                 </div>
-                {items.length === 0 ? (
-                  <div className="flex-1 flex items-center justify-center text-center px-4">
-                    <p className="text-xs text-stone-400">Arrastra ideas aquí o usá &ldquo;+ Nueva idea&rdquo;</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {items.map(idea => (
-                      <IdeaCard
-                        key={idea.id}
-                        idea={idea}
-                        onUpdate={(patch) => updateIdea(idea.id, patch)}
-                        onOpen={(id) => setOpenIdeaId(id)}
-                        onDragStart={setDraggingId}
-                        onDragEnd={() => { setDraggingId(null); setDragOverCol(null); setDragOverCard(null); }}
-                        onCardDragOver={handleCardDragOver}
-                        onCardDrop={handleCardDrop}
-                        dragging={draggingId === idea.id}
-                        mergeHint={dragOverCard === idea.id}
-                      />
-                    ))}
-                  </div>
-                )}
+
+                <div className="space-y-3 flex-1">
+                  {TEMP_SECTIONS.map(t => {
+                    const items = colItems[t.key] || [];
+                    const sectionKey = `${col.key}-${t.key}`;
+                    const isOver = dragOverSection === sectionKey && draggingId && !dragOverCard;
+                    return (
+                      <div
+                        key={t.key}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverSection !== sectionKey) setDragOverSection(sectionKey); }}
+                        onDrop={(e) => { e.preventDefault(); handleSectionDrop(col.key, t.key); }}
+                        className="rounded-lg p-2 transition-all"
+                        style={{
+                          background: t.bg,
+                          outline: isOver ? `2px solid ${t.c}` : "none",
+                          outlineOffset: -2,
+                          minHeight: 80,
+                        }}
+                      >
+                        <div className="flex items-center justify-between mb-2 px-1">
+                          <p className="text-[11px] font-semibold tracking-tight flex items-center gap-1" style={{ color: t.c }}>
+                            <span>{t.emoji}</span> {t.label}
+                          </p>
+                          {items.length > 0 && <span className="text-[10px] font-medium" style={{ color: t.c, opacity: 0.7 }}>{items.length}</span>}
+                        </div>
+                        <div className="space-y-2">
+                          {items.map(idea => (
+                            <IdeaCard
+                              key={idea.id}
+                              idea={idea}
+                              onUpdate={(patch) => updateIdea(idea.id, patch)}
+                              onOpen={(id) => setOpenIdeaId(id)}
+                              onDragStart={setDraggingId}
+                              onDragEnd={() => { setDraggingId(null); setDragOverSection(null); setDragOverCard(null); }}
+                              onCardDragOver={handleCardDragOver}
+                              onCardDrop={handleCardDrop}
+                              dragging={draggingId === idea.id}
+                              mergeHint={dragOverCard === idea.id}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <button onClick={() => setNewIdeaCol(col.key)}
+                  className="mt-3 w-full py-2 rounded-lg text-xs font-medium text-stone-500 hover:text-orange-600 hover:bg-orange-50 border border-dashed border-stone-200 hover:border-orange-200 transition-colors flex items-center justify-center gap-1.5">
+                  <Plus size={12} /> Nueva idea
+                </button>
               </div>
             );
           })}
         </div>
       )}
 
-      {showModal && <NewIdeaModal onClose={() => setShowModal(false)} onCreate={createIdea} />}
-      {openIdea && <IdeaModal idea={openIdea} onClose={() => setOpenIdeaId(null)} onUpdate={(patch) => updateIdea(openIdea.id, patch)} />}
+      {newIdeaCol && <NewIdeaModal initialCategory={newIdeaCol} onClose={() => setNewIdeaCol(null)} onCreate={createIdea} />}
+      {openIdea && <IdeaPanel idea={openIdea} onClose={() => setOpenIdeaId(null)} onUpdate={(patch) => updateIdea(openIdea.id, patch)} onSent={() => setOpenIdeaId(null)} />}
       {mergeRequest && <MergeModal source={mergeRequest.source} target={mergeRequest.target} onConfirm={confirmMerge} onCancel={() => setMergeRequest(null)} />}
     </div>
   );
