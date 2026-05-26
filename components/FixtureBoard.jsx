@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Lightbulb, Plus, Loader2, X, Copy, Check, Sparkles, CheckCircle2 } from "lucide-react";
 
 const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
@@ -331,6 +332,8 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
   const [pasteM, setPasteM] = useState(null);
   const [confirmSend, setConfirmSend] = useState(false);
   const [sent, setSent] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [slideIn, setSlideIn] = useState(false);
 
   const formats = Array.isArray(idea.formats) ? idea.formats : [];
   const targets = formats.filter(f => GENERABLE_FORMATS.includes(f));
@@ -338,6 +341,13 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
   const hasGenerated = Object.keys(gen).length > 0;
   const angleStyle = idea.angle ? ANGLE_TYPES[idea.angle] : null;
   const currentTemp = normalizeTemp(idea.temperature);
+
+  // Portal mount + slide-in animation (doble rAF para garantizar el frame inicial)
+  useEffect(() => {
+    setMounted(true);
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setSlideIn(true)));
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   useEffect(() => {
     if (editM || pasteM || confirmSend) return; // let nested handle escape
@@ -416,10 +426,40 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
     setTimeout(() => { onSent(); }, 1800);
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <>
-      <div onClick={onClose} className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.35)", backdropFilter: "blur(4px)" }} />
-      <div className="fixed top-0 right-0 bottom-0 z-50 bg-white shadow-2xl flex flex-col" style={{ width: "60vw", minWidth: 560 }}>
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          top: 0, right: 0, bottom: 0, left: 0,
+          background: "rgba(0,0,0,0.35)",
+          backdropFilter: "blur(4px)",
+          opacity: slideIn ? 1 : 0,
+          transition: "opacity 220ms ease-out",
+          zIndex: 50,
+        }}
+      />
+      <div
+        style={{
+          position: "fixed",
+          top: 0, right: 0, bottom: 0,
+          height: "100vh",
+          width: "60vw",
+          minWidth: 560,
+          maxWidth: "calc(100vw - 64px)",
+          background: "white",
+          boxShadow: "-12px 0 40px rgba(0,0,0,0.18)",
+          transform: slideIn ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 280ms cubic-bezier(0.16, 1, 0.3, 1)",
+          zIndex: 51,
+          display: "flex",
+          flexDirection: "column",
+          willChange: "transform",
+        }}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-8 py-5 border-b border-stone-200 gap-3 shrink-0">
           <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
@@ -568,7 +608,8 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
         aiBody={pasteM.format === "linkedin" ? (gen.linkedin?.cuerpo || "") : (gen.reel?.guion || "")}
         onClose={() => setPasteM(null)}
         onSave={async (text) => { await saveManualVersion(pasteM.format, text); }} />}
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -651,9 +692,12 @@ export default function FixtureBoard() {
     fetch("/api/ideas", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, ...patch }) });
   };
 
+  // Section drop = mover a esa columna/temperatura. El merge solo dispara desde
+  // el onDrop de la tarjeta (que llama stopPropagation), así que si llegamos
+  // acá es porque el drop fue en espacio vacío de la sección. No miramos
+  // dragOverCard, que puede estar desactualizado por un hover previo.
   const handleSectionDrop = (columnKey, tempKey) => {
     if (!draggingId) return;
-    if (dragOverCard) { setDraggingId(null); setDragOverSection(null); setDragOverCard(null); return; }
     const idea = ideas.find(i => i.id === draggingId);
     if (idea) {
       const patch = {};
@@ -663,6 +707,7 @@ export default function FixtureBoard() {
     }
     setDraggingId(null);
     setDragOverSection(null);
+    setDragOverCard(null);
   };
 
   const handleCardDragOver = (e, target) => {
@@ -748,7 +793,12 @@ export default function FixtureBoard() {
                     return (
                       <div
                         key={t.key}
-                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (dragOverSection !== sectionKey) setDragOverSection(sectionKey); }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = "move";
+                          if (dragOverSection !== sectionKey) setDragOverSection(sectionKey);
+                          if (dragOverCard !== null) setDragOverCard(null);
+                        }}
                         onDrop={(e) => { e.preventDefault(); handleSectionDrop(col.key, t.key); }}
                         className="rounded-lg p-2 transition-all"
                         style={{
