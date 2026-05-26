@@ -1,10 +1,11 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb, Calendar } from "lucide-react";
 import dynamic from "next/dynamic";
 const LearningsReview = dynamic(() => import("@/components/LearningsReview"), { ssr: false });
 const ProtocolosViewer = dynamic(() => import("@/components/ProtocolosViewer"), { ssr: false });
 const FixtureBoard = dynamic(() => import("@/components/FixtureBoard"), { ssr: false });
+const ParrillaView = dynamic(() => import("@/components/ParrillaView"), { ssr: false });
 
 const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
 
@@ -122,6 +123,111 @@ function EditModal({ title, content, onClose, onApply }) {
 
 function AIEditBtn({ onClick }) {
   return <button onClick={onClick} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-orange-50 shrink-0" style={{ color: O, borderColor: OB }}><Sparkles size={12} /> Editar con IA</button>;
+}
+
+// ═══ SEND TO PARRILLA MODAL ═══
+// pieces: [{ key, title, content, content_type, preview }]
+function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
+  const [selected, setSelected] = useState(() => Object.fromEntries(pieces.map(p => [p.key, true])));
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+
+  const toggle = (k) => setSelected(prev => ({ ...prev, [k]: !prev[k] }));
+  const count = Object.values(selected).filter(Boolean).length;
+
+  const submit = async () => {
+    if (count === 0 || submitting) return;
+    setSubmitting(true);
+    const toSend = pieces.filter(p => selected[p.key]).map(p => ({
+      title: p.title,
+      content: p.content,
+      content_type: p.content_type,
+      origin_type: "episode",
+      origin_id: ep.id,
+      origin_label: `Ep. ${ep.name}`,
+    }));
+    try {
+      await api("/api/parrilla/batch", {
+        method: "POST",
+        body: JSON.stringify({
+          items: toSend,
+          idea_group_id: ep.id,
+          idea_group_title: ep.name,
+        }),
+      });
+      setDone(true);
+      setTimeout(() => { onSent?.(); onClose(); }, 1400);
+    } catch (_) {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
+      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
+          <h3 className="font-semibold text-stone-800">📅 Enviar a Parrilla</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
+        </div>
+        <div className="p-6 flex-1 overflow-y-auto space-y-2">
+          <p className="text-xs text-stone-500 mb-3">Seleccioná las piezas que querés enviar al inbox de la Parrilla.</p>
+          {pieces.length === 0 ? (
+            <p className="text-sm text-stone-400 italic">No hay piezas para enviar.</p>
+          ) : pieces.map(p => {
+            const on = !!selected[p.key];
+            return (
+              <label key={p.key} className="flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors"
+                style={{ background: on ? OL : "white", borderColor: on ? OB : "#E7E5E4" }}>
+                <input type="checkbox" checked={on} onChange={() => toggle(p.key)}
+                  className="mt-0.5 w-4 h-4 accent-orange-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-stone-800 truncate">{p.label_prefix}{p.title}</p>
+                  {p.preview && <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{p.preview}</p>}
+                </div>
+              </label>
+            );
+          })}
+        </div>
+        <div className="px-6 py-4 border-t border-stone-200 flex items-center gap-2">
+          {done ? (
+            <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: GL, color: GR }}>
+              <CheckCircle2 size={16} /> Enviadas {count} pieza{count === 1 ? "" : "s"} al inbox
+            </div>
+          ) : (
+            <>
+              <p className="flex-1 text-xs text-stone-500">{count} pieza{count === 1 ? "" : "s"} seleccionada{count === 1 ? "" : "s"}</p>
+              <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100">Cancelar</button>
+              <button onClick={submit} disabled={count === 0 || submitting} className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
+                style={{ background: count && !submitting ? O : "#D6D3D1", cursor: count && !submitting ? "pointer" : "not-allowed" }}>
+                {submitting ? <><Loader2 size={14} className="animate-spin" /> Enviando...</> : `Enviar ${count}`}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SendToParrillaBtn({ pieces, ep, onSent }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button onClick={() => setOpen(true)}
+        disabled={pieces.length === 0}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{ color: O, borderColor: OB }}>
+        <Calendar size={12} /> Enviar a Parrilla
+      </button>
+      {open && <SendToParrillaModal pieces={pieces} ep={ep} onClose={() => setOpen(false)} onSent={onSent} />}
+    </>
+  );
 }
 
 // ═══ UPLOAD MODAL ═══
@@ -343,9 +449,34 @@ function RepurposeTab({ ep, onUpdate, onLearn }) {
     onLearn("intros", fb);
   };
 
+  // Piezas para enviar a la Parrilla (todos los reels + todos los LinkedIn — los intros no van)
+  const parrillaPieces = [
+    ...(rp?.reels || []).map((reel, i) => ({
+      key: `reel-${i}`,
+      label_prefix: `🎬 Reel — `,
+      title: reel.titulo || `Reel #${i + 1}`,
+      content: reel.guion || "",
+      content_type: "reel",
+      preview: reel.guion,
+    })),
+    ...(rp?.linkedin || []).map((post, i) => ({
+      key: `linkedin-${i}`,
+      label_prefix: `💼 LinkedIn — `,
+      title: (post.hook || post.cuerpo || "").split("\n")[0].slice(0, 80) || `LinkedIn #${i + 1}`,
+      content: post.cuerpo || "",
+      content_type: "linkedin",
+      preview: post.cuerpo,
+    })),
+  ];
+
   if (sel.length === 0) return <div className="rounded-xl border border-stone-200 bg-white p-8 text-center"><p className="text-sm text-stone-500">Primero selecciona ángulos en la tab de Contenido</p></div>;
 
   return <div>
+    {rp && parrillaPieces.length > 0 && (
+      <div className="mb-4 flex justify-end">
+        <SendToParrillaBtn pieces={parrillaPieces} ep={ep} />
+      </div>
+    )}
     {!rp && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-2">🔄 Generar repurpose</h3>
       <p className="text-xs text-stone-400 mb-4">{selectedAngles.length} ángulos seleccionados → intros + reels + LinkedIn</p>
@@ -416,7 +547,22 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
 
   if (loading || !momentos.length) return <div className="rounded-xl border border-stone-200 bg-white p-5"><h3 className="font-semibold text-[15px] text-stone-800 mb-3">⛏️ Micro-contenido para redes</h3><Skel n={6} /></div>;
 
+  // Piezas para enviar a la Parrilla — los clips de minado entran como 'reel' por defecto
+  const parrillaPieces = momentos.map((m, i) => ({
+    key: `minado-${i}`,
+    label_prefix: `🎬 Clip — `,
+    title: (m.cita || "").slice(0, 80) + ((m.cita || "").length > 80 ? "…" : ""),
+    content: m.cita || "",
+    content_type: "reel",
+    preview: m.por_que_funciona || m.sugerencia_caption,
+  }));
+
   return <div>
+    {parrillaPieces.length > 0 && (
+      <div className="mb-4 flex justify-end">
+        <SendToParrillaBtn pieces={parrillaPieces} ep={ep} />
+      </div>
+    )}
     {/* VOZ EN OFF */}
     {vozEnOff.length > 0 && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎙️ Voz en off — Presentación del invitado</h3>
@@ -465,13 +611,28 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
-  const [activeView, setActiveView] = useState("workspace"); // workspace | learnings | protocolos | fixture
+  const [activeView, setActiveView] = useState("workspace"); // workspace | learnings | protocolos | fixture | parrilla
+  const [parrillaInboxCount, setParrillaInboxCount] = useState(0);
 
   const ep = idx >= 0 ? eps[idx] : null;
 
   useEffect(() => {
     api("/api/episodes").then(data => { setEps(Array.isArray(data) ? data : []); setLoadingEps(false); });
   }, []);
+
+  // Cargar count del inbox para el badge del sidebar (refresca cuando entra al view)
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const r = await fetch("/api/parrilla?status=inbox");
+        const data = await r.json();
+        if (!cancelled) setParrillaInboxCount(Array.isArray(data) ? data.length : 0);
+      } catch (_) { /* swallow */ }
+    };
+    refresh();
+    return () => { cancelled = true; };
+  }, [activeView]);
 
   const updateEp = useCallback((patch) => {
     setEps(prev => prev.map((e, i) => i === idx ? { ...e, ...patch } : e));
@@ -555,6 +716,11 @@ export default function Home() {
             <BookOpen size={14} style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
             <span style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Protocolos</span>
           </button>
+          <button onClick={() => { setActiveView('parrilla'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'parrilla' ? "rgba(234,88,12,0.15)" : "transparent" }}>
+            <Calendar size={14} style={{ color: activeView === 'parrilla' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span className="flex-1" style={{ color: activeView === 'parrilla' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Parrilla</span>
+            {parrillaInboxCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: "#EA580C", color: "white" }}>{parrillaInboxCount}</span>}
+          </button>
           <button onClick={() => { setActiveView('fixture'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'fixture' ? "rgba(234,88,12,0.15)" : "transparent" }}>
             <Lightbulb size={14} style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
             <span style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Fixture</span>
@@ -571,6 +737,8 @@ export default function Home() {
           <ProtocolosViewer onBack={() => setActiveView('workspace')} />
         ) : activeView === 'fixture' ? (
           <FixtureBoard onBack={() => setActiveView('workspace')} />
+        ) : activeView === 'parrilla' ? (
+          <ParrillaView onBack={() => setActiveView('workspace')} />
         ) : !ep ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
             <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: OL }}><FileText size={28} color={O} /></div>
