@@ -419,9 +419,50 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
     }
   };
 
-  const sendToGrid = () => {
+  const sendToGrid = async () => {
     setConfirmSend(false);
     setSent(true);
+
+    // Crear items en parrilla_items, uno por cada formato activo de la idea.
+    // Si no hay formatos, creamos uno por default (linkedin) para que la idea
+    // sea visible en la Parrilla y JP no quede sin nada.
+    const activeFormats = formats.length > 0 ? formats : ["linkedin"];
+    const parrillaItems = activeFormats.map(fmt => {
+      let content = "";
+      if (fmt === "linkedin") content = gen.linkedin?.cuerpo || idea.notes || idea.description || "";
+      else if (fmt === "reel") content = gen.reel?.guion || idea.notes || idea.description || "";
+      else if (fmt === "newsletter") content = idea.notes || idea.description || "";
+      return {
+        title: idea.title,
+        content,
+        content_type: fmt, // 'linkedin' | 'reel' | 'newsletter'
+        origin_type: "fixture",
+        origin_id: idea.id,
+        origin_label: "Fixture",
+      };
+    });
+
+    console.log("[Fixture→Parrilla] enviando batch:", { items: parrillaItems, idea_group_id: idea.id, idea_group_title: idea.title });
+
+    try {
+      const r = await fetch("/api/parrilla/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: parrillaItems,
+          idea_group_id: idea.id,
+          idea_group_title: idea.title,
+        }),
+      });
+      const data = await r.json();
+      console.log("[Fixture→Parrilla] respuesta:", data);
+      if (data && data.error) {
+        console.error("[Fixture→Parrilla] Supabase error:", data.error);
+      }
+    } catch (e) {
+      console.error("[Fixture→Parrilla] network error:", e);
+    }
+
     onUpdate({ status: "ready" });
     setTimeout(() => { onSent(); }, 1800);
   };

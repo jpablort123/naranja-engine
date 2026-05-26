@@ -156,14 +156,10 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
       origin_label: `Ep. ${ep.name}`,
     }));
     try {
-      const result = await api("/api/parrilla/batch", {
-        method: "POST",
-        body: JSON.stringify({
-          items: toSend,
-          idea_group_id: ep.id,
-          idea_group_title: ep.name,
-        }),
-      });
+      const payload = { items: toSend, idea_group_id: ep.id, idea_group_title: ep.name };
+      console.log("[Episode→Parrilla] enviando batch:", payload);
+      const result = await api("/api/parrilla/batch", { method: "POST", body: JSON.stringify(payload) });
+      console.log("[Episode→Parrilla] respuesta:", result);
       if (result && result.error) {
         setErrMsg(`No pude enviar a la parrilla: ${result.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
         setSubmitting(false);
@@ -172,6 +168,7 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
       setDone(true);
       setTimeout(() => { onSent?.(); onClose(); }, 1400);
     } catch (e) {
+      console.error("[Episode→Parrilla] network error:", e);
       setErrMsg(`Error de red: ${e.message || e}`);
       setSubmitting(false);
     }

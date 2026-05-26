@@ -193,17 +193,54 @@ function IdeaGroupBlock({ groupId, groupTitle, originLabel, pieces, expanded, on
 
 // ─── Tarjeta del calendario ────────────────────────────────────────────────
 
+// Panel de detalle (preview + checklist + origen) compartido por Week / Month / List
+function ChecklistExpanded({ item, onUpdate, surfaceBg = "rgba(255,255,255,0.7)" }) {
+  const { keys } = checklistProgress(item);
+  const statusKey = getCardStatus(item);
+  const s = STATUS_STYLES[statusKey];
+
+  const toggleCheck = (k) => {
+    const next = { ...(item.checklist || {}), [k]: !item.checklist?.[k] };
+    onUpdate(item.id, { checklist: next });
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t" style={{ borderColor: s.border + "55" }}>
+      {item.content ? (
+        <div className="text-[11px] text-stone-600 leading-relaxed rounded p-2 mb-2 max-h-32 overflow-y-auto" style={{ background: surfaceBg }}>
+          {item.content.slice(0, 220)}{item.content.length > 220 ? "…" : ""}
+        </div>
+      ) : (
+        <p className="text-[10px] italic text-stone-400 mb-2">Sin contenido generado</p>
+      )}
+      {keys.length > 0 && (
+        <>
+          <p className="text-[9px] uppercase tracking-widest font-medium text-stone-400 mb-1.5">Checklist</p>
+          <div className="space-y-1">
+            {keys.map(k => {
+              const checked = !!item.checklist?.[k];
+              return (
+                <label key={k} className="flex items-center gap-1.5 cursor-pointer text-[11px]">
+                  <input type="checkbox" checked={checked} onChange={() => toggleCheck(k)}
+                    className="w-3 h-3 rounded shrink-0 accent-orange-600" />
+                  <span className={checked ? "text-green-700 line-through" : "text-stone-700"}>{k}</span>
+                </label>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {item.origin_label && <p className="text-[10px] text-stone-500 mt-2 pt-1.5 border-t" style={{ borderColor: s.border + "55" }}>Origen: {item.origin_label}</p>}
+    </div>
+  );
+}
+
 function CalendarCard({ item, expanded, onToggle, onUpdate }) {
   const meta = CONTENT_TYPES[item.content_type] || { emoji: "📄", label: item.content_type };
   const statusKey = getCardStatus(item);
   const s = STATUS_STYLES[statusKey];
   const { keys, done } = checklistProgress(item);
   const showBar = keys.length > 1;
-
-  const toggleCheck = (k) => {
-    const next = { ...(item.checklist || {}), [k]: !item.checklist?.[k] };
-    onUpdate(item.id, { checklist: next });
-  };
 
   const title = item.title || "(sin título)";
   const displayTitle = title.length > 45 ? title.slice(0, 45) + "…" : title;
@@ -232,32 +269,51 @@ function CalendarCard({ item, expanded, onToggle, onUpdate }) {
       )}
 
       {expanded && (
-        <div onClick={e => e.stopPropagation()} className="mt-2 pt-2 border-t" style={{ borderColor: s.border + "55" }}>
-          {item.content ? (
-            <div className="text-[11px] text-stone-600 leading-relaxed bg-white/70 rounded p-2 mb-2 max-h-24 overflow-y-auto">
-              {item.content.slice(0, 160)}{item.content.length > 160 ? "…" : ""}
-            </div>
-          ) : (
-            <p className="text-[10px] italic text-stone-400 mb-2">Sin contenido generado</p>
-          )}
-          {keys.length > 0 && (
-            <>
-              <p className="text-[9px] uppercase tracking-widest font-medium text-stone-400 mb-1.5">Checklist</p>
-              <div className="space-y-1">
-                {keys.map(k => {
-                  const checked = !!item.checklist?.[k];
-                  return (
-                    <label key={k} className="flex items-center gap-1.5 cursor-pointer text-[11px]">
-                      <input type="checkbox" checked={checked} onChange={() => toggleCheck(k)}
-                        className="w-3 h-3 rounded shrink-0 accent-orange-600" />
-                      <span className={checked ? "text-green-700 line-through" : "text-stone-700"}>{k}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {item.origin_label && <p className="text-[10px] text-stone-500 mt-2 pt-1.5 border-t" style={{ borderColor: s.border + "55" }}>Origen: {item.origin_label}</p>}
+        <div onClick={e => e.stopPropagation()}>
+          <ChecklistExpanded item={item} onUpdate={onUpdate} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Month view: tarjeta compacta de 1 línea ──────────────────────────────
+
+function MonthCard({ item, onClick }) {
+  const meta = CONTENT_TYPES[item.content_type] || { emoji: "📄" };
+  const statusKey = getCardStatus(item);
+  const s = STATUS_STYLES[statusKey];
+  return (
+    <div
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="rounded px-1.5 py-0.5 text-[10px] truncate cursor-pointer hover:opacity-90 transition-opacity"
+      style={{ background: s.bg, border: `1px solid ${s.border}`, color: "#1c1917" }}
+      title={item.title}
+    >
+      <span className="mr-1">{meta.emoji}</span>{item.title}
+    </div>
+  );
+}
+
+// ─── List view: fila ──────────────────────────────────────────────────────
+
+function ListRow({ item, expanded, onToggle, onUpdate }) {
+  const meta = CONTENT_TYPES[item.content_type] || { emoji: "📄", label: item.content_type };
+  const statusKey = getCardStatus(item);
+  const s = STATUS_STYLES[statusKey];
+  return (
+    <div className="rounded-xl border bg-white overflow-hidden transition-all" style={{ borderColor: expanded ? s.border : "#E7E5E4" }}>
+      <button onClick={onToggle} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-stone-50 text-left">
+        <span className="inline-block w-2 h-2 rounded-full shrink-0" style={{ background: s.dot }} />
+        <span className="text-[11px] font-medium px-2 py-0.5 rounded bg-stone-50 text-stone-600 inline-flex items-center gap-1 shrink-0">
+          <span>{meta.emoji}</span> {meta.label}
+        </span>
+        <p className="flex-1 text-sm font-medium text-stone-800 truncate">{item.title}</p>
+        {item.origin_label && <span className="text-[11px] text-stone-500 shrink-0">{item.origin_label}</span>}
+      </button>
+      {expanded && (
+        <div className="px-4 pb-3" onClick={e => e.stopPropagation()}>
+          <ChecklistExpanded item={item} onUpdate={onUpdate} surfaceBg="#FAFAF9" />
         </div>
       )}
     </div>
@@ -325,12 +381,194 @@ function DayColumn({ date, items, isToday, isWeekend, ghostType, expandedId, onT
   );
 }
 
+// ─── Helpers de mes ───────────────────────────────────────────────────────
+
+function firstOfMonth(d) {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+function addMonths(d, n) {
+  return new Date(d.getFullYear(), d.getMonth() + n, 1);
+}
+function getMonthGridRange(anchorDate) {
+  const ms = firstOfMonth(anchorDate);
+  const gridStart = getMonday(ms);
+  const lastDay = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + 1, 0);
+  const gridEnd = addDays(getMonday(lastDay), 7); // exclusive
+  return { gridStart, gridEnd };
+}
+
+// ─── Month view ───────────────────────────────────────────────────────────
+
+function MonthDay({ date, inMonth, isToday, items, ghostType, expandedId, onToggleExpand, onClickDay }) {
+  const hideGhost = ghostType && items.some(i => i.content_type === ghostType);
+  const visible = items.slice(0, 3);
+  const extra = items.length - visible.length;
+  const expandedHere = items.find(i => i.id === expandedId);
+
+  return (
+    <div
+      onClick={onClickDay}
+      className="rounded-lg p-1.5 flex flex-col gap-1 transition-colors cursor-pointer hover:bg-stone-50"
+      style={{
+        border: `1px solid #E7E5E4`,
+        background: inMonth ? "white" : "#FAFAF9",
+        minHeight: 110,
+        opacity: inMonth ? 1 : 0.55,
+      }}
+    >
+      <div className="flex items-center justify-end">
+        <div
+          className="text-[11px] font-semibold flex items-center justify-center"
+          style={{
+            background: isToday ? O : "transparent",
+            color: isToday ? "white" : (inMonth ? "#292524" : "#A8A29E"),
+            width: 20, height: 20, borderRadius: "50%",
+          }}
+        >{date.getDate()}</div>
+      </div>
+      <div className="space-y-0.5 flex-1">
+        {ghostType && !hideGhost && (
+          <div className="rounded px-1.5 py-0.5 text-[9px] truncate text-stone-400 border border-dashed" style={{ borderColor: "#D6D3D1", background: "#FAFAF9" }}>
+            {CONTENT_TYPES[ghostType].emoji} {CONTENT_TYPES[ghostType].label}
+          </div>
+        )}
+        {visible.map(it => (
+          <MonthCard key={it.id} item={it} onClick={() => onToggleExpand(it.id)} />
+        ))}
+        {extra > 0 && (
+          <p className="text-[10px] font-medium" style={{ color: O }}>+{extra} más</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MonthView({ anchorDate, items, expandedId, onToggleExpand, onUpdateItem, onClickDay, ghostFor }) {
+  const today = new Date();
+  const { gridStart, gridEnd } = getMonthGridRange(anchorDate);
+  const totalDays = Math.round((gridEnd - gridStart) / 86400000);
+
+  // Group items by date
+  const byDate = {};
+  for (const it of items) {
+    if (!it.scheduled_date || it.status === "discarded" || it.status === "inbox") continue;
+    (byDate[it.scheduled_date] = byDate[it.scheduled_date] || []).push(it);
+  }
+
+  // Cualquier item expandido a desplegar debajo del grid
+  const expandedItem = expandedId ? items.find(i => i.id === expandedId) : null;
+  const anchorMonth = anchorDate.getMonth();
+
+  return (
+    <div className="p-4">
+      <div className="grid mb-2" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4 }}>
+        {DIAS_CORTOS.map(d => (
+          <div key={d} className="text-center text-[10px] uppercase tracking-widest text-stone-500 font-medium py-1">{d}</div>
+        ))}
+      </div>
+      <div className="grid" style={{ gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 4 }}>
+        {Array.from({ length: totalDays }).map((_, i) => {
+          const date = addDays(gridStart, i);
+          const iso = toISODate(date);
+          const inMonth = date.getMonth() === anchorMonth;
+          return (
+            <MonthDay
+              key={iso}
+              date={date}
+              inMonth={inMonth}
+              isToday={isSameDay(date, today)}
+              items={byDate[iso] || []}
+              ghostType={ghostFor(date)}
+              expandedId={expandedId}
+              onToggleExpand={onToggleExpand}
+              onClickDay={() => onClickDay(date)}
+            />
+          );
+        })}
+      </div>
+      {expandedItem && (
+        <div className="mt-4 rounded-xl border bg-white p-4" style={{ borderColor: "#E7E5E4" }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-base">{(CONTENT_TYPES[expandedItem.content_type] || {}).emoji || "📄"}</span>
+              <p className="text-sm font-semibold text-stone-800 truncate">{expandedItem.title}</p>
+            </div>
+            <button onClick={() => onToggleExpand(expandedItem.id)} className="p-1 rounded hover:bg-stone-100">
+              <X size={14} color={MU} />
+            </button>
+          </div>
+          <ChecklistExpanded item={expandedItem} onUpdate={onUpdateItem} surfaceBg="#FAFAF9" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── List view ────────────────────────────────────────────────────────────
+
+function formatDayHeader(date) {
+  const today = new Date();
+  const tomorrow = addDays(today, 1);
+  if (isSameDay(date, today)) return "Hoy · " + date.toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
+  if (isSameDay(date, tomorrow)) return "Mañana · " + date.toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
+  return date.toLocaleDateString("es", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function ListView({ anchorDate, listDays, items, expandedId, onToggleExpand, onUpdateItem, onLoadMore }) {
+  // Group items by date for the next listDays days starting at anchorDate (Monday of week containing anchor)
+  const start = getMonday(anchorDate);
+  const dayGroups = [];
+  for (let i = 0; i < listDays; i++) {
+    const date = addDays(start, i);
+    const iso = toISODate(date);
+    const dayItems = items.filter(it => it.scheduled_date === iso && it.status !== "inbox" && it.status !== "discarded");
+    if (dayItems.length > 0) dayGroups.push({ date, items: dayItems });
+  }
+
+  return (
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      {dayGroups.length === 0 ? (
+        <div className="text-center py-16">
+          <p className="text-sm text-stone-400">No hay piezas programadas en este periodo.</p>
+        </div>
+      ) : (
+        dayGroups.map(g => (
+          <div key={toISODate(g.date)}>
+            <p className="text-[10px] uppercase tracking-widest font-medium text-stone-500 mb-2 first-letter:uppercase">
+              {formatDayHeader(g.date)}
+            </p>
+            <div className="space-y-2">
+              {g.items.map(it => (
+                <ListRow
+                  key={it.id}
+                  item={it}
+                  expanded={expandedId === it.id}
+                  onToggle={() => onToggleExpand(it.id)}
+                  onUpdate={onUpdateItem}
+                />
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+      <div className="flex justify-center pt-2">
+        <button onClick={onLoadMore} className="px-4 py-2 rounded-xl text-xs font-medium border hover:bg-orange-50"
+          style={{ color: O, borderColor: OB }}>
+          Cargar más
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Componente principal ─────────────────────────────────────────────────
 
 export default function ParrillaView({ onBack }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [weekStart, setWeekStart] = useState(() => getMonday(new Date()));
+  const [viewMode, setViewMode] = useState("week"); // 'week' | 'month' | 'list'
+  const [anchorDate, setAnchorDate] = useState(() => new Date());
+  const [listDays, setListDays] = useState(14);
   const [originFilter, setOriginFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [expandedItemId, setExpandedItemId] = useState(null);
@@ -339,18 +577,39 @@ export default function ParrillaView({ onBack }) {
   const [showNew, setShowNew] = useState(false);
   const [errorBanner, setErrorBanner] = useState(null);
 
-  // Fetch — trae el inbox + las piezas de la semana visible
+  // Derivados de viewMode + anchorDate
+  const weekStart = useMemo(() => getMonday(anchorDate), [anchorDate]);
+
+  const dateRange = useMemo(() => {
+    if (viewMode === "week") {
+      return { from: toISODate(weekStart), to: toISODate(addDays(weekStart, 7)) };
+    }
+    if (viewMode === "month") {
+      const { gridStart, gridEnd } = getMonthGridRange(anchorDate);
+      return { from: toISODate(gridStart), to: toISODate(gridEnd) };
+    }
+    // list
+    const start = getMonday(anchorDate);
+    return { from: toISODate(start), to: toISODate(addDays(start, listDays)) };
+  }, [viewMode, anchorDate, weekStart, listDays]);
+
+  // Fetch — trae el inbox + las piezas en el rango visible
   const fetchAll = async () => {
     setLoading(true);
     setErrorBanner(null);
     try {
-      const wkISO = toISODate(weekStart);
+      const { from, to } = dateRange;
+      console.log("[Parrilla] fetchAll rango:", { viewMode, from, to });
       const [inboxRes, calRes, completeRes] = await Promise.all([
         fetch("/api/parrilla?status=inbox").then(r => r.json()),
-        fetch(`/api/parrilla?status=scheduled&week_start=${wkISO}`).then(r => r.json()),
-        fetch(`/api/parrilla?status=complete&week_start=${wkISO}`).then(r => r.json()),
+        fetch(`/api/parrilla?status=scheduled&date_from=${from}&date_to=${to}`).then(r => r.json()),
+        fetch(`/api/parrilla?status=complete&date_from=${from}&date_to=${to}`).then(r => r.json()),
       ]);
-      // Si alguna respuesta es un objeto con .error en vez de array, mostrarlo
+      console.log("[Parrilla] fetchAll respuestas:", {
+        inbox: Array.isArray(inboxRes) ? inboxRes.length : inboxRes,
+        scheduled: Array.isArray(calRes) ? calRes.length : calRes,
+        complete: Array.isArray(completeRes) ? completeRes.length : completeRes,
+      });
       const firstError = [inboxRes, calRes, completeRes].find(r => r && r.error);
       if (firstError) {
         setErrorBanner(`No pude leer la parrilla: ${firstError.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
@@ -362,6 +621,7 @@ export default function ParrillaView({ onBack }) {
       const complete = Array.isArray(completeRes) ? completeRes : [];
       setItems([...inbox, ...scheduled, ...complete]);
     } catch (e) {
+      console.error("[Parrilla] fetchAll error:", e);
       setErrorBanner(`Error de red leyendo la parrilla: ${e.message || e}`);
       setItems([]);
     } finally {
@@ -369,7 +629,7 @@ export default function ParrillaView({ onBack }) {
     }
   };
 
-  useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [weekStart]);
+  useEffect(() => { fetchAll(); /* eslint-disable-next-line */ }, [viewMode, anchorDate, listDays]);
 
   // ─── Filtrado del inbox ───
   const inboxItems = useMemo(() => items.filter(i => i.status === "inbox"), [items]);
@@ -447,6 +707,7 @@ export default function ParrillaView({ onBack }) {
   const handleDiscard = (id) => patchItem(id, { status: "discarded" });
 
   const handleCreate = async (payload) => {
+    console.log("[Parrilla] POST manual:", payload);
     try {
       const res = await fetch("/api/parrilla", {
         method: "POST",
@@ -454,6 +715,7 @@ export default function ParrillaView({ onBack }) {
         body: JSON.stringify(payload),
       });
       const created = await res.json();
+      console.log("[Parrilla] respuesta POST:", created);
       if (created && created.error) {
         setErrorBanner(`No pude crear la pieza: ${created.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
         return;
@@ -461,12 +723,12 @@ export default function ParrillaView({ onBack }) {
       if (created && created.id) {
         setItems(prev => [created, ...prev]);
         setShowNew(false);
-        // Refetch para asegurar consistencia con DB
         fetchAll();
       } else {
         setErrorBanner("La respuesta del servidor no incluyó el item creado. Revisá la consola del browser.");
       }
     } catch (e) {
+      console.error("[Parrilla] handleCreate error:", e);
       setErrorBanner(`Error de red creando la pieza: ${e.message || e}`);
     }
   };
@@ -475,7 +737,39 @@ export default function ParrillaView({ onBack }) {
 
   // Headers del calendario
   const today = new Date();
-  const monthLabel = `${MESES[weekStart.getMonth()]} ${weekStart.getFullYear()}`;
+  const headerLabel = useMemo(() => {
+    if (viewMode === "month") {
+      return `${MESES[anchorDate.getMonth()]} ${anchorDate.getFullYear()}`;
+    }
+    if (viewMode === "list") {
+      const start = getMonday(anchorDate);
+      const end = addDays(start, listDays - 1);
+      return `${start.getDate()} ${MESES[start.getMonth()].slice(0,3)} → ${end.getDate()} ${MESES[end.getMonth()].slice(0,3)}`;
+    }
+    return `${MESES[weekStart.getMonth()]} ${weekStart.getFullYear()}`;
+  }, [viewMode, anchorDate, weekStart, listDays]);
+
+  const goPrev = () => {
+    if (viewMode === "week") setAnchorDate(addDays(anchorDate, -7));
+    else if (viewMode === "month") setAnchorDate(addMonths(anchorDate, -1));
+    // list view no usa prev
+  };
+  const goNext = () => {
+    if (viewMode === "week") setAnchorDate(addDays(anchorDate, 7));
+    else if (viewMode === "month") setAnchorDate(addMonths(anchorDate, 1));
+  };
+  const goToday = () => { setAnchorDate(new Date()); setListDays(14); };
+
+  const switchToView = (mode) => {
+    setViewMode(mode);
+    setExpandedItemId(null);
+    if (mode === "list") setListDays(14);
+  };
+
+  const handleClickMonthDay = (date) => {
+    setAnchorDate(date);
+    setViewMode("week");
+  };
 
   return (
     <div className="flex h-full" style={{ background: "#FAFAF9", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -610,57 +904,114 @@ export default function ParrillaView({ onBack }) {
             <div className="flex items-center gap-2">
               <Calendar size={18} color={O} />
               <h1 className="text-base font-semibold text-stone-900">Parrilla de contenidos</h1>
-              <span className="text-sm text-stone-500">· {monthLabel}</span>
+              <span className="text-sm text-stone-500">· {headerLabel}</span>
             </div>
+
             <div className="flex items-center gap-2">
-              <div className="flex items-center gap-3 mr-3 text-[10px] text-stone-500">
-                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.gray.dot }}/> Sin iniciar</span>
-                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.yellow.dot }}/> En progreso</span>
-                <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.green.dot }}/> Listo</span>
+              {/* Selector de vista */}
+              <div className="flex items-center mr-2 rounded-lg overflow-hidden" style={{ border: "1px solid #E7E5E4" }}>
+                {[
+                  { key: "week",  label: "Semana" },
+                  { key: "month", label: "Mes" },
+                  { key: "list",  label: "Lista" },
+                ].map(v => {
+                  const on = viewMode === v.key;
+                  return (
+                    <button key={v.key} onClick={() => switchToView(v.key)}
+                      className="px-3 py-1.5 text-xs font-medium transition-colors"
+                      style={{
+                        background: on ? OL : "white",
+                        color: on ? O : "#78716A",
+                      }}>
+                      {v.label}
+                    </button>
+                  );
+                })}
               </div>
-              <button onClick={() => setWeekStart(addDays(weekStart, -7))}
-                className="p-1.5 rounded-lg hover:bg-stone-100 border border-stone-200"
-                title="Semana anterior">
-                <ChevronLeft size={14} color={MU} />
-              </button>
-              <button onClick={() => setWeekStart(getMonday(new Date()))}
+
+              {/* Leyenda — solo en week/month */}
+              {viewMode !== "list" && (
+                <div className="flex items-center gap-3 mr-2 text-[10px] text-stone-500">
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.gray.dot }}/> Sin iniciar</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.yellow.dot }}/> En progreso</span>
+                  <span className="inline-flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: STATUS_STYLES.green.dot }}/> Listo</span>
+                </div>
+              )}
+
+              {/* Navegación — week/month tienen flechas, list solo Hoy */}
+              {viewMode !== "list" && (
+                <button onClick={goPrev}
+                  className="p-1.5 rounded-lg hover:bg-stone-100 border border-stone-200"
+                  title={viewMode === "month" ? "Mes anterior" : "Semana anterior"}>
+                  <ChevronLeft size={14} color={MU} />
+                </button>
+              )}
+              <button onClick={goToday}
                 className="px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-orange-50 transition-colors"
                 style={{ color: O, border: `1px solid ${OB}` }}>
                 Hoy
               </button>
-              <button onClick={() => setWeekStart(addDays(weekStart, 7))}
-                className="p-1.5 rounded-lg hover:bg-stone-100 border border-stone-200"
-                title="Semana siguiente">
-                <ChevronRight size={14} color={MU} />
-              </button>
+              {viewMode !== "list" && (
+                <button onClick={goNext}
+                  className="p-1.5 rounded-lg hover:bg-stone-100 border border-stone-200"
+                  title={viewMode === "month" ? "Mes siguiente" : "Semana siguiente"}>
+                  <ChevronRight size={14} color={MU} />
+                </button>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Grid de 7 columnas — estilo inline para garantizar layout aunque Tailwind purgue */}
-        <div className="p-4" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 8 }}>
-          {Array.from({ length: 7 }).map((_, i) => {
-            const date = addDays(weekStart, i);
-            const iso = toISODate(date);
-            const dayItems = scheduledByDay[iso] || [];
-            const isWeekend = i >= 5;
-            const ghostType = ghostFor(date);
-            return (
-              <DayColumn
-                key={iso}
-                date={date}
-                items={dayItems}
-                isToday={isSameDay(date, today)}
-                isWeekend={isWeekend}
-                ghostType={ghostType}
-                expandedId={expandedItemId}
-                onToggleExpand={(id) => setExpandedItemId(prev => prev === id ? null : id)}
-                onUpdateItem={patchItem}
-                onDropPiece={handleDropOnDay}
-              />
-            );
-          })}
-        </div>
+        {/* Cuerpo del calendario según vista */}
+        {viewMode === "week" && (
+          <div className="p-4" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 8 }}>
+            {Array.from({ length: 7 }).map((_, i) => {
+              const date = addDays(weekStart, i);
+              const iso = toISODate(date);
+              const dayItems = scheduledByDay[iso] || [];
+              const isWeekend = i >= 5;
+              const ghostType = ghostFor(date);
+              return (
+                <DayColumn
+                  key={iso}
+                  date={date}
+                  items={dayItems}
+                  isToday={isSameDay(date, today)}
+                  isWeekend={isWeekend}
+                  ghostType={ghostType}
+                  expandedId={expandedItemId}
+                  onToggleExpand={(id) => setExpandedItemId(prev => prev === id ? null : id)}
+                  onUpdateItem={patchItem}
+                  onDropPiece={handleDropOnDay}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {viewMode === "month" && (
+          <MonthView
+            anchorDate={anchorDate}
+            items={items}
+            expandedId={expandedItemId}
+            onToggleExpand={(id) => setExpandedItemId(prev => prev === id ? null : id)}
+            onUpdateItem={patchItem}
+            onClickDay={handleClickMonthDay}
+            ghostFor={ghostFor}
+          />
+        )}
+
+        {viewMode === "list" && (
+          <ListView
+            anchorDate={anchorDate}
+            listDays={listDays}
+            items={items}
+            expandedId={expandedItemId}
+            onToggleExpand={(id) => setExpandedItemId(prev => prev === id ? null : id)}
+            onUpdateItem={patchItem}
+            onLoadMore={() => setListDays(d => d + 14)}
+          />
+        )}
       </div>
 
       {showNew && <NewItemModal onClose={() => setShowNew(false)} onCreate={handleCreate} />}

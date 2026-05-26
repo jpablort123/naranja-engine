@@ -25,21 +25,29 @@ function addDaysISO(iso, days) {
 
 // GET — listar items
 //   ?status=inbox|scheduled|complete|discarded|all
-//   ?week_start=YYYY-MM-DD  (filtra scheduled_date dentro de [week_start, week_start+7))
+//   ?week_start=YYYY-MM-DD  (compat — equivale a date_from=X, date_to=X+7)
+//   ?date_from=YYYY-MM-DD   (inclusive)
+//   ?date_to=YYYY-MM-DD     (exclusive)
 //   ?content_type=...
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status') || 'all';
   const week_start = searchParams.get('week_start');
+  const date_from = searchParams.get('date_from');
+  const date_to = searchParams.get('date_to');
   const content_type = searchParams.get('content_type');
 
   let q = db.from('parrilla_items').select('*');
 
   if (status !== 'all') q = q.eq('status', status);
   if (content_type) q = q.eq('content_type', content_type);
+
   if (week_start) {
     const week_end = addDaysISO(week_start, 7);
     q = q.gte('scheduled_date', week_start).lt('scheduled_date', week_end);
+  } else {
+    if (date_from) q = q.gte('scheduled_date', date_from);
+    if (date_to)   q = q.lt('scheduled_date', date_to);
   }
 
   q = q.order('scheduled_date', { ascending: true, nullsFirst: true })
