@@ -337,23 +337,32 @@ export default function ParrillaView({ onBack }) {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [draggingId, setDraggingId] = useState(null);
   const [showNew, setShowNew] = useState(false);
+  const [errorBanner, setErrorBanner] = useState(null);
 
   // Fetch — trae el inbox + las piezas de la semana visible
   const fetchAll = async () => {
     setLoading(true);
+    setErrorBanner(null);
     try {
       const wkISO = toISODate(weekStart);
-      const [inboxRes, calRes] = await Promise.all([
+      const [inboxRes, calRes, completeRes] = await Promise.all([
         fetch("/api/parrilla?status=inbox").then(r => r.json()),
         fetch(`/api/parrilla?status=scheduled&week_start=${wkISO}`).then(r => r.json()),
+        fetch(`/api/parrilla?status=complete&week_start=${wkISO}`).then(r => r.json()),
       ]);
+      // Si alguna respuesta es un objeto con .error en vez de array, mostrarlo
+      const firstError = [inboxRes, calRes, completeRes].find(r => r && r.error);
+      if (firstError) {
+        setErrorBanner(`No pude leer la parrilla: ${firstError.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
+        setItems([]);
+        return;
+      }
       const inbox = Array.isArray(inboxRes) ? inboxRes : [];
       const scheduled = Array.isArray(calRes) ? calRes : [];
-      // También cargar 'complete' de la semana (para que aparezcan en verde, no desaparezcan)
-      const completeRes = await fetch(`/api/parrilla?status=complete&week_start=${wkISO}`).then(r => r.json());
       const complete = Array.isArray(completeRes) ? completeRes : [];
       setItems([...inbox, ...scheduled, ...complete]);
     } catch (e) {
+      setErrorBanner(`Error de red leyendo la parrilla: ${e.message || e}`);
       setItems([]);
     } finally {
       setLoading(false);
@@ -445,9 +454,21 @@ export default function ParrillaView({ onBack }) {
         body: JSON.stringify(payload),
       });
       const created = await res.json();
-      if (created && created.id) setItems(prev => [created, ...prev]);
-      setShowNew(false);
-    } catch (_) { /* swallow */ }
+      if (created && created.error) {
+        setErrorBanner(`No pude crear la pieza: ${created.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
+        return;
+      }
+      if (created && created.id) {
+        setItems(prev => [created, ...prev]);
+        setShowNew(false);
+        // Refetch para asegurar consistencia con DB
+        fetchAll();
+      } else {
+        setErrorBanner("La respuesta del servidor no incluyó el item creado. Revisá la consola del browser.");
+      }
+    } catch (e) {
+      setErrorBanner(`Error de red creando la pieza: ${e.message || e}`);
+    }
   };
 
   const toggleGroup = (gid) => setExpandedGroups(prev => ({ ...prev, [gid]: !prev[gid] }));
@@ -573,6 +594,16 @@ export default function ParrillaView({ onBack }) {
 
       {/* ═══ CALENDARIO (derecha) ═══ */}
       <div className="flex-1 overflow-auto">
+        {errorBanner && (
+          <div className="m-4 p-4 rounded-xl border border-red-200 bg-red-50 text-sm text-red-700 flex items-start gap-2">
+            <span className="font-semibold shrink-0">⚠️</span>
+            <div className="flex-1">
+              <p className="font-medium">{errorBanner}</p>
+              <button onClick={() => { setErrorBanner(null); fetchAll(); }} className="mt-2 text-xs text-red-600 underline hover:text-red-800">Reintentar</button>
+            </div>
+            <button onClick={() => setErrorBanner(null)} className="p-1 rounded hover:bg-red-100"><X size={14} /></button>
+          </div>
+        )}
         {/* Header del calendario */}
         <div className="px-6 py-4 border-b border-stone-200 bg-white sticky top-0 z-10">
           <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -606,8 +637,8 @@ export default function ParrillaView({ onBack }) {
           </div>
         </div>
 
-        {/* Grid de 7 columnas */}
-        <div className="p-4 grid grid-cols-7 gap-2">
+        {/* Grid de 7 columnas — estilo inline para garantizar layout aunque Tailwind purgue */}
+        <div className="p-4" style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 8 }}>
           {Array.from({ length: 7 }).map((_, i) => {
             const date = addDays(weekStart, i);
             const iso = toISODate(date);

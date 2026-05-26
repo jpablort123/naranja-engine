@@ -141,9 +141,12 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
   const toggle = (k) => setSelected(prev => ({ ...prev, [k]: !prev[k] }));
   const count = Object.values(selected).filter(Boolean).length;
 
+  const [errMsg, setErrMsg] = useState(null);
+
   const submit = async () => {
     if (count === 0 || submitting) return;
     setSubmitting(true);
+    setErrMsg(null);
     const toSend = pieces.filter(p => selected[p.key]).map(p => ({
       title: p.title,
       content: p.content,
@@ -153,7 +156,7 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
       origin_label: `Ep. ${ep.name}`,
     }));
     try {
-      await api("/api/parrilla/batch", {
+      const result = await api("/api/parrilla/batch", {
         method: "POST",
         body: JSON.stringify({
           items: toSend,
@@ -161,9 +164,15 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
           idea_group_title: ep.name,
         }),
       });
+      if (result && result.error) {
+        setErrMsg(`No pude enviar a la parrilla: ${result.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
+        setSubmitting(false);
+        return;
+      }
       setDone(true);
       setTimeout(() => { onSent?.(); onClose(); }, 1400);
-    } catch (_) {
+    } catch (e) {
+      setErrMsg(`Error de red: ${e.message || e}`);
       setSubmitting(false);
     }
   };
@@ -176,6 +185,9 @@ function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
           <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
         </div>
         <div className="p-6 flex-1 overflow-y-auto space-y-2">
+          {errMsg && (
+            <div className="mb-3 p-3 rounded-xl border border-red-200 bg-red-50 text-xs text-red-700">⚠️ {errMsg}</div>
+          )}
           <p className="text-xs text-stone-500 mb-3">Seleccioná las piezas que querés enviar al inbox de la Parrilla.</p>
           {pieces.length === 0 ? (
             <p className="text-sm text-stone-400 italic">No hay piezas para enviar.</p>
