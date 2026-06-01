@@ -160,8 +160,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
   - Sistema aprende silenciosamente de la diferencia entre lo que generó y lo que JP terminó escribiendo
 
 ### Lo que NO funciona todavía
-- No hay parrilla / calendario editorial → Sprint 4
-- No hay chat embebido con contexto → Sprint 5
+- No hay chat embebido con contexto → Sprint 4
 - No hay métricas reales de redes alimentando protocolos → Futuro
 
 ---
@@ -247,7 +246,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 5. Click en tarjeta → panel lateral con notas + prompt + controles de formato y temperatura
 6. Genera contenido desde la idea (LinkedIn / Reel) o pega su propia versión
 7. Cuando una idea está lista, click "📋 Enviar a la parrilla" → desaparece del Fixture con `status='ready'`
-8. (Próximo paso del flujo, Sprint 4): la idea aparece en la Parrilla para asignarle fecha de publicación
+8. La idea (con `status='ready'`) deja de aparecer en el Fixture; las piezas asociadas viajan al inbox de la Parrilla (Sprint 3A) para programación
 
 ### Ciclo de vida completo de una idea (referencia rápida)
 1. **Nace** — desde un ángulo de episodio ("Al banco"), desde una pieza de Repurpose (intro / reel / LinkedIn), desde un clip de Minado, o creada manual con "+ Nueva idea" en una columna
@@ -256,7 +255,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 4. **Madura** — JP sube su temperatura mientras la cocina (cold → warm → spotlight)
 5. **Se trabaja** — click en la tarjeta abre el panel lateral: notas, prompt, formatos, generación o "Pegar mi versión"
 6. **Sale del Fixture** — "📋 Enviar a la parrilla" → `status='ready'` → desaparece del Kanban
-7. **Se programa y publica** — en la Parrilla (Sprint 4, pendiente): asignar fecha y canal, publicar
+7. **Se programa y publica** — en la Parrilla (Sprint 3A): cada formato activo de la idea se convierte en una pieza en el inbox de la Parrilla, JP la arrastra a un día del calendario y marca el checklist de producción
 
 ### Fases de la API y qué protocolos se inyectan
 
@@ -452,7 +451,7 @@ SIEMPRE disponible tanto edición manual directa (click para editar cualquier te
 ### Funcionalidades especiales
 - **Aparear ideas:** drag sobre tarjeta del mismo `category` → modal de confirmación → fusiona descripción, notas y formatos; fuente queda con `status='merged'` y se oculta
 - **"Llevar al banco":** botón "Al banco" (icono Lightbulb) en cada ángulo del workspace, cada reel/LinkedIn de Repurpose, y cada momento de Minado → crea idea con `origin_id` y `origin_type='episode'`. Si la pieza ya tiene contenido (un post de LinkedIn de Repurpose), se guarda en `generated_content` desde el inicio.
-- **"Enviar a la parrilla":** cambia `status` a `'ready'` → la idea sale del Fixture (filtro excluye `merged` y `ready`). La parrilla es Sprint 4.
+- **"Enviar a la parrilla":** cambia `status` a `'ready'` → la idea sale del Fixture (filtro excluye `merged` y `ready`) y dispara `POST /api/parrilla/batch` que crea una pieza por cada formato activo en el inbox de la Parrilla (Sprint 3A).
 - **"Pegar mi versión":** modal con la versión IA de referencia. Al guardar, hace patch en `generated_content[fmt]` con `source: 'manual'` y crea automáticamente un `learning` draft (original=IA, feedback=manual) para que el sistema aprenda de la diferencia. Si no había versión IA con la que comparar, solo guarda el texto sin crear learning.
 
 ### Lo que NO se construyó del spec original (decisiones de simplificación)
@@ -473,34 +472,13 @@ SIEMPRE disponible tanto edición manual directa (click para editar cualquier te
 
 ---
 
-## 10. PARRILLA (Sprint 4 — pendiente)
+## 10. PARRILLA — ya implementada en Sprint 3A
 
-La parrilla es la vista de contenido programado para publicación. Cuando JP usa "📋 Enviar a la parrilla" desde el Fixture, la idea pasa a `status='ready'` y debe aparecer en esta vista para asignarle fecha y canal.
-
-### Funcionalidad esperada
-- Vista de calendario / grid semanal con slots por canal (LinkedIn, Reel, Newsletter)
-- Lista de ideas con `status='ready'` en bandeja "por programar"
-- Asignar fecha de publicación a una idea (drag a un slot del calendario, o picker)
-- Estados nuevos: `ready` → `scheduled` → `published`
-- Vista "esta semana" + "próximas semanas"
-- Indicador visual de huecos en la parrilla por canal (días sin contenido programado)
-- Edición de la pieza desde el slot (reabrir panel del Fixture o uno equivalente)
-
-### Lo que ya está listo del lado del Fixture (sirve como insumo)
-- `ideas.status = 'ready'` marca las ideas que JP aprobó para publicar
-- `ideas.formats` indica los canales destino
-- `ideas.generated_content` ya tiene el material (versión IA o manual de JP)
-- `ideas.origin_id` permite rastrear de qué episodio salió cada pieza programada
-
-### Decisiones abiertas
-- ¿Vista mensual o semanal por defecto?
-- ¿Una idea puede ocupar varios slots (mismo concepto en LinkedIn y Reel)? Probablemente sí — misma idea, diferentes piezas con diferentes formatos
-- ¿Integración con herramientas de programación reales (Buffer, Later, Metricool) o flujo manual con copiar + pegar?
-- ¿Necesitamos un campo `scheduled_at` en `ideas` o una tabla `schedule` separada?
+Ver sección 4 → "Lo que tiene y funciona (Sprint 3A COMPLETO)" para el detalle de lo construido (inbox + 3 vistas de calendario, checklist por tipo, ghost slots, drag-and-drop). El flujo end-to-end está en sección 6 → "Flujo de Parrilla (Sprint 3A)". El schema vive en sección 3 → tabla `parrilla_items`.
 
 ---
 
-## 11. CHAT EMBEBIDO (Sprint 5 — pendiente)
+## 11. CHAT EMBEBIDO (Sprint 4 — pendiente)
 
 - Panel que se desliza desde la derecha, disponible desde cualquier pantalla
 - Tiene contexto automático de dónde está el usuario (episodio, idea, protocolo, slot de parrilla)
@@ -564,20 +542,12 @@ La parrilla es la vista de contenido programado para publicación. Cuando JP usa
 - ✅ "📝 Pegar mi versión" con creación automática de learning draft (AI vs manual) — aprendizaje sin prompt
 - 📋 Pendiente del Sprint 3: botón "Copiar idea completa con contexto" (bloque markdown listo para pegar en Claude) — se quitó al rediseñar el panel, JP lo sigue queriendo
 
-### Sprint 4 o 5 — Parrilla / Calendario editorial (PENDIENTE)
-- Vista de calendario o grid semanal de contenido programado
-- Asignar fechas de publicación a ideas con `status='ready'`
-- Estados nuevos: ready → scheduled → published
-- Drag-and-drop entre slots de fecha
-- Ver huecos en la parrilla por canal (LinkedIn / Reel / Newsletter)
-- Decidir integración con herramientas externas vs flujo manual
+> **Parrilla — ya implementada en Sprint 3A** (ver bloques Sprint 3A arriba y sección 4). Sale del roadmap pendiente.
 
-### Sprint 4 o 5 — Chat embebido + pulido (PENDIENTE)
+### Sprint 4 — Chat embebido + pulido (PENDIENTE)
 - Panel lateral con contexto automático (episodio / idea / protocolo / slot de parrilla)
 - Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio", "Programar en parrilla")
 - Pulido general
-
-> **Orden entre Parrilla y Chat por definir.** Ambos son candidatos al Sprint 4. La Parrilla es el cierre natural del flujo iniciado por "Enviar a la parrilla" del Fixture (sin ella las ideas con `status='ready'` quedan en el aire). El Chat embebido acelera todo lo demás. JP decide el orden cuando arranque el próximo sprint.
 
 ### Futuro
 - Métricas reales de redes → alimentan protocolos automáticamente
@@ -651,7 +621,7 @@ Los 7 protocolos están cargados en la tabla `protocolos` de Supabase (insertado
 - ¿Cómo entra el feedback de Daniela? (Un campo de "notas y comentarios" en cada idea — hoy entra en el textarea de notas del panel)
 - ¿Cada cuántos episodios hacer el "protocol refresh" de consolidar aprendizajes al protocolo base? (Propuesta: 10-15 episodios)
 - ¿Los intros deberían generarse en Fase 2 (junto con títulos) en vez de en Repurpose? Conceptualmente son producción del episodio, no repurpose. Actualmente están en Repurpose por simplicidad de UX.
-- ¿La parrilla del Sprint 4 debería integrarse con Buffer/Later/Metricool o quedarse en flujo manual de copy-paste?
+- ¿La Parrilla debería integrarse con Buffer/Later/Metricool en una iteración futura, o se queda en flujo manual (JP copia el contenido y publica en cada plataforma)?
 - ¿Newsletter sigue siendo no-generable desde el Fixture o se construye un protocolo de Newsletter para el Engine?
 
 ---
