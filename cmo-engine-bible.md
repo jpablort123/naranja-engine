@@ -1,6 +1,6 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 26 Mayo 2026
+### Última actualización: 1 Junio 2026
 
 ---
 
@@ -42,6 +42,8 @@ learnings (id UUID PK, episode_id UUID FK, section TEXT, original_content TEXT, 
 protocol_history (id UUID PK, protocol_id UUID FK, previous_content TEXT, new_content TEXT, learning_ids JSONB, summary TEXT, created_at)
 
 ideas (id UUID PK, title TEXT, description TEXT, notes TEXT, category TEXT default 'undecided', temperature TEXT default 'cold', formats JSONB, angle TEXT, origin_url TEXT, origin_type TEXT, origin_id TEXT, status TEXT, generated_content JSONB, prompt_notes TEXT, parent_id UUID FK self, position INTEGER, created_at, updated_at)
+
+parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_type TEXT, origin_id UUID, origin_label TEXT, idea_group_id TEXT, idea_group_title TEXT, scheduled_date DATE, position INTEGER, checklist JSONB, status TEXT default 'inbox', created_at, updated_at)
 ```
 
 ### Cómo se usan las columnas en el flujo actual
@@ -55,6 +57,11 @@ ideas (id UUID PK, title TEXT, description TEXT, notes TEXT, category TEXT defau
 - `ideas.temperature` → `'spotlight' | 'warm' | 'cold'` (3 niveles; `'hot'` legado se mapea a `warm` en runtime)
 - `ideas.category` → `'undecided' | 'contenido' | 'newsletter'`
 - `ideas.generated_content` → `{ linkedin?: {...}, reel?: {...} }`. Si `source === 'manual'`, la pieza fue pegada por JP en vez de generada
+- `parrilla_items.content_type` → `'episodio' | 'linkedin' | 'reel' | 'tiktok' | 'newsletter' | 'carrousel'`
+- `parrilla_items.status` → `'inbox'` (en cola para programar) | `'scheduled'` (programado en fecha) | `'complete'` (todo el checklist marcado) | `'discarded'` (descartado, no se publica)
+- `parrilla_items.checklist` → JSONB dinámico según `content_type`. Episodio: `{Editado, Títulos y descripciones, Thumbnails}`. LinkedIn: `{Aprobado}`. Reel: `{Libreto aprobado, Grabado, Editado}`. TikTok: `{Libreto aprobado, Grabado, Editado}`. Newsletter: `{Aprobado, Imagen portada}`. Carrousel: `{Copy, Diseñado}`.
+- `parrilla_items.origin_type` → `'episode' | 'newsletter' | 'fixture' | 'manual'`
+- `parrilla_items.idea_group_id` + `idea_group_title` → agrupan piezas que vienen de la misma idea. Cuando todas las piezas de un grupo están programadas o descartadas, el grupo desaparece del inbox.
 
 ---
 
@@ -89,7 +96,23 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 - **Visor de protocolos:** split view con lista de protocolos a la izquierda (badges de learnings aprobados y draft) y detalle a la derecha. Muestra contenido completo del protocolo, aprendizajes inyectados en verde, historial de versiones (tabla `protocol_history`), botón copiar protocolo completo (con aprendizajes incluidos), y edición directa con razón del cambio que se versiona automáticamente.
 - **Navegación por vistas:** estado `activeView` controla si se muestra el workspace de episodios, la revisión de aprendizajes, o el visor de protocolos. Click en episodio vuelve al workspace.
 
-### Lo que tiene y funciona (Sprint 3 COMPLETO)
+### Lo que tiene y funciona (Sprint 3A COMPLETO)
+- **Parrilla de contenidos:** vista nueva accesible desde sidebar con split view — inbox a la izquierda + calendario a la derecha
+- **Inbox con filtros:** piezas de contenido pendientes de programar, agrupadas por idea de origen, con filtros por origen (Episodio, Newsletter, Fixture) y por tipo de contenido (LinkedIn, Reel, TikTok, Newsletter, Carrousel, Episodio)
+- **Drag and drop:** arrastrar piezas del inbox al calendario para programarlas en un día específico
+- **3 vistas de calendario:** Semana (grid 7 columnas Lun-Dom), Mes (grid 7×N con tarjetas compactas, click en día cambia a vista semana), Lista (cronológica vertical agrupada por día, con "Cargar más" para +14 días)
+- **Ghost slots recurrentes:** los martes alternan automáticamente entre Episodio y Newsletter (semanas pares = episodio, impares = newsletter, basado en semana ISO). Si ya hay un item del tipo correspondiente programado ese martes, el ghost se oculta.
+- **Checklist de producción por tipo:** cada pieza tiene un checklist específico según su content_type. Episodio: Editado + Títulos y descripciones + Thumbnails. LinkedIn: Aprobado. Reel/TikTok: Libreto aprobado + Grabado + Editado. Newsletter: Aprobado + Imagen portada. Carrousel: Copy + Diseñado.
+- **3 estados visuales por color:** gris (sin iniciar, 0 checks marcados), amarillo (en progreso, al menos 1 check pero no todos), verde (listo, todos los checks marcados)
+- **Tarjeta expandida:** click en tarjeta del calendario muestra preview del contenido generado + checklist interactivo (marcar/desmarcar) + origen de la pieza
+- **Mini barra de progreso:** debajo de cada tarjeta en el calendario, segmentos que se llenan según el checklist (solo visible si el checklist tiene más de 1 item)
+- **"Enviar a Parrilla":** botón disponible en Fixture (tarjetas de ideas), Repurpose y Minado (tabs de episodios) que envía piezas de contenido al inbox de la Parrilla
+- **"+ Agregar contenido":** botón en el inbox para creación manual de piezas (título, tipo, contenido opcional)
+- **Descartar pieza (✕):** marcar una pieza como "no publicar" (`status = 'discarded'`) sin eliminarla permanentemente
+- **Histórico:** el contenido completado (verde) se mantiene visible en el calendario como registro histórico
+- **Navegación temporal:** flechas para navegar entre semanas/meses según la vista activa, botón "Hoy" para volver a la fecha actual
+
+### Lo que tiene y funciona (Sprint 3B COMPLETO)
 - **Banco de Ideas (Fixture Kanban)** accesible desde el sidebar como un tercer item permanente ("Fixture", ícono Lightbulb)
 - **Tres columnas** en orden fijo:
   - 💭 **Sin definir** (`category='undecided'`) — para ideas sin formato decidido
@@ -204,6 +227,18 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 3. Detalle a la derecha: contenido completo + aprendizajes inyectados en verde
 4. Puede copiar protocolo completo (con learnings), ver historial de versiones, o editar directamente
 
+### Flujo de Parrilla (Sprint 3A)
+1. Contenido llega al inbox de la Parrilla desde múltiples fuentes: Episodios (botón "Enviar a Parrilla" en Repurpose/Minado), Fixture (botón "Enviar a Parrilla" en tarjeta de idea), o creación manual (botón "+" en el inbox)
+2. Las piezas aparecen en el inbox agrupadas por idea de origen, con su tipo de contenido (emoji + label)
+3. JP puede filtrar el inbox por origen (Episodio, Newsletter, Fixture) y por tipo de contenido
+4. JP arrastra cada pieza individual a un día del calendario (drag and drop del inbox al calendario)
+5. Una vez programada, JP va marcando el checklist de producción según el tipo (ej: Reel = Libreto aprobado → Grabado → Editado)
+6. El color de la tarjeta cambia automáticamente según progreso: gris (nada marcado) → amarillo (parcial) → verde (todo listo)
+7. Si JP decide no publicar una pieza, la descarta con ✕ (`status = 'discarded'`)
+8. Cuando todas las piezas de una idea están programadas o descartadas, la idea desaparece del inbox
+9. El contenido completado permanece visible en el calendario como registro histórico
+10. Los martes muestran ghost slots recurrentes que alternan entre Episodio y Newsletter para recordar la cadencia de publicación
+
 ### Flujo de ideas / Fixture (Sprint 3)
 1. JP entra al "Fixture" desde el sidebar
 2. Ve tres columnas (Sin definir / Redes Sociales / Newsletter) con sus filas de temperatura
@@ -274,14 +309,19 @@ app/
     │   ├── route.js                     → CRUD de learnings (POST crear, GET listar)
     │   ├── synthesize/route.js          → POST: agrupa drafts por protocolo, Claude sintetiza patrones
     │   └── batch/route.js               → POST: batch approve/reject/circumstantial + protocol_history
-    └── protocolos/
-        ├── route.js                     → GET: todos los protocolos con conteos de learnings
-        └── [id]/
-            ├── route.js                 → GET/PUT: protocolo individual (edición con versionado)
-            └── history/route.js         → GET: historial de versiones del protocolo
+    ├── protocolos/
+    │   ├── route.js                     → GET: todos los protocolos con conteos de learnings
+    │   └── [id]/
+    │       ├── route.js                 → GET/PUT: protocolo individual (edición con versionado)
+    │       └── history/route.js         → GET: historial de versiones del protocolo
+    └── parrilla/
+        ├── route.js                     → GET: items por status y rango de fechas (date_from/date_to o week_start). POST: crear item individual
+        ├── [id]/route.js                → PATCH: actualizar item (scheduled_date, checklist, status, position, title, content)
+        └── batch/route.js               → POST: enviar múltiples piezas desde episodio o fixture de una vez
 components/
 ├── FixtureBoard.jsx                     → Kanban del banco de ideas (3 columnas, 3 temperaturas, panel lateral, parrilla, pegar versión)
 ├── LearningsReview.jsx                  → Vista de revisión de aprendizajes (síntesis + decisiones)
+├── ParrillaView.jsx                     → Vista de Parrilla completa (inbox con filtros + calendario con 3 vistas: semana, mes, lista)
 └── ProtocolosViewer.jsx                 → Visor de protocolos (split view + edición + historial)
 lib/
 └── supabase.js                          → Clientes de Supabase (browser + server)
@@ -494,7 +534,20 @@ La parrilla es la vista de contenido programado para publicación. Cuando JP usa
 - ✅ Edición directa del protocolo desde la app (con razón del cambio + versionado automático)
 - ✅ Navegación por vistas en sidebar (Aprendizajes + Protocolos como items permanentes)
 
-### Sprint 3 ✅ COMPLETO (v0.5, 26 Mayo 2026)
+### Sprint 3A ✅ COMPLETO (v0.5, 27 Mayo 2026)
+- ✅ Tabla `parrilla_items` en Supabase (con RLS deshabilitado)
+- ✅ API routes: `GET/POST /api/parrilla`, `PATCH /api/parrilla/[id]`, `POST /api/parrilla/batch`
+- ✅ Vista Parrilla en sidebar con split view (inbox + calendario)
+- ✅ 3 vistas de calendario: Semana, Mes, Lista
+- ✅ Drag and drop del inbox al calendario
+- ✅ Checklist de producción por tipo de contenido (6 tipos con checks específicos)
+- ✅ 3 estados de color: gris (sin iniciar), amarillo (en progreso), verde (listo)
+- ✅ Ghost slots recurrentes en martes (Episodio/Newsletter alternando por semana ISO)
+- ✅ "Enviar a Parrilla" desde Fixture, Repurpose y Minado
+- ✅ Creación manual de piezas + descartar piezas
+- ✅ Histórico visible en calendario
+
+### Sprint 3B ✅ COMPLETO (v0.5, 26 Mayo 2026)
 - ✅ Fixture Kanban con tres columnas: Sin definir (izq) / Redes Sociales (centro) / Newsletter (der) — el orden refleja el flujo de la idea
 - ✅ Temperaturas como filas visuales (💡 Quiere ver la luz / 🌤️ Tibio / ❄️ Frío) — se eliminó 🔥 Caliente
 - ✅ Drag-and-drop de tarjetas entre columnas y entre temperaturas (PUT category/temperature)
@@ -586,6 +639,8 @@ Los 7 protocolos están cargados en la tabla `protocolos` de Supabase (insertado
 10. **El alias `@/` en imports requiere `jsconfig.json`** con `{ "compilerOptions": { "paths": { "@/*": ["./*"] } } }`. Sin este archivo, los imports `@/components/...` fallan en build.
 11. **Modales y paneles fixed dentro de árboles con overflow/transform deben usar `createPortal`** a `document.body`. Sin esto, un ancestro puede crear un contexto de apilamiento que rompe el `position: fixed` (le pasó al panel del Fixture en su primera versión).
 12. **El drop sobre un contenedor padre no debe gatear su lógica en `dragOverState` del hijo.** El `stopPropagation` del onDrop del hijo ya garantiza exclusividad. Mirar state que pudo quedar desactualizado por un hover viejo lleva a bugs como "el merge se dispara al soltar en espacio vacío".
+13. **Siempre deshabilitar RLS en tablas nuevas de Supabase** con `ALTER TABLE nombre DISABLE ROW LEVEL SECURITY;` inmediatamente después de crearla. Por default Supabase crea tablas con RLS activo y sin políticas, lo que bloquea TODAS las operaciones (insert, select, update, delete) desde la anon key. Todas las tablas del proyecto CMO Engine usan RLS deshabilitado.
+14. **Agregar nuevos directorios de componentes al `content` de `tailwind.config.js`.** Si un archivo `.jsx` vive en un directorio que no está en el array `content`, las clases Tailwind que SOLO aparecen en ese archivo no se generan en el CSS compilado y el layout se rompe silenciosamente (ej: `grid-cols-7` no se aplicaba porque `components/` no estaba en el scan).
 
 ---
 
