@@ -1,11 +1,12 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb, Calendar } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
 import dynamic from "next/dynamic";
 const LearningsReview = dynamic(() => import("@/components/LearningsReview"), { ssr: false });
 const ProtocolosViewer = dynamic(() => import("@/components/ProtocolosViewer"), { ssr: false });
 const FixtureBoard = dynamic(() => import("@/components/FixtureBoard"), { ssr: false });
 const ParrillaView = dynamic(() => import("@/components/ParrillaView"), { ssr: false });
+const InicioView = dynamic(() => import("@/components/InicioView"), { ssr: false });
 
 const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
 
@@ -620,8 +621,10 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
-  const [activeView, setActiveView] = useState("workspace"); // workspace | learnings | protocolos | fixture | parrilla
+  const [activeView, setActiveView] = useState("inicio"); // inicio | podcast | newsletter | workspace | learnings | protocolos | fixture | parrilla
   const [parrillaInboxCount, setParrillaInboxCount] = useState(0);
+  const [podcastExpanded, setPodcastExpanded] = useState(true);
+  const [newsletterToast, setNewsletterToast] = useState(false);
 
   const ep = idx >= 0 ? eps[idx] : null;
 
@@ -701,62 +704,276 @@ export default function Home() {
   const tabs = [{ key: "contenido", label: "Contenido", icon: "📝" }, { key: "repurpose", label: "Repurpose", icon: "🔄" }, { key: "minado", label: "Minado", icon: "⛏️" }];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
+  // ── Sprint 1: acción contextual del botón "+ Nuevo" según la superficie activa
+  const contextualNew = (() => {
+    if (activeView === "newsletter") {
+      return { label: "Nueva edición", onClick: () => { setNewsletterToast(true); setTimeout(() => setNewsletterToast(false), 2400); } };
+    }
+    if (activeView === "inicio" || activeView === "podcast" || activeView === "workspace") {
+      return { label: "Nuevo episodio", onClick: () => setShowUp(true) };
+    }
+    return null; // fixture / parrilla / learnings / protocolos: cada vista ya tiene su propia creación interna
+  })();
+
+  // ── Sprint 1: navegación helper desde InicioView
+  const goTo = (view) => {
+    setIdx(-1);
+    setActiveView(view);
+  };
+
+  // ── Sprint 1: estado activo del item "Podcast" (incluye workspace al estar viendo un episodio)
+  const podcastActive = activeView === "podcast" || activeView === "workspace";
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#FAFAF9", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
-      {/* SIDEBAR */}
+      {/* SIDEBAR — Sprint 1: re-jerarquización (Inicio + Contenido + Sistema) */}
       <div className="w-56 shrink-0 flex flex-col text-white" style={{ background: "#18181B" }}>
-        <div className="p-5 pb-3"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{ background: O }}>N</div><div><p className="text-sm font-semibold text-white tracking-tight">CMO Engine</p><p className="text-[10px] text-zinc-500 -mt-0.5">Naranja Media</p></div></div></div>
-        <div className="px-3 mb-3"><button onClick={() => setShowUp(true)} className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium hover:opacity-90" style={{ background: O }}><Plus size={14} /> Nuevo episodio</button></div>
-        <div className="flex-1 overflow-y-auto px-3">
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 px-2 mb-2">Episodios</p>
-          {loadingEps ? <p className="text-xs text-zinc-600 px-2">Cargando...</p> : eps.length === 0 ? <p className="text-xs text-zinc-600 px-2">Sin episodios aún</p> : eps.map((e, i) => (
-            <button key={e.id || i} onClick={() => { setIdx(i); setPhase(e.status === 'complete' ? 'done' : null); setActiveView('workspace'); }} className="w-full text-left px-3 py-2.5 rounded-lg mb-1 text-xs transition-all truncate" style={{ background: i === idx && activeView === 'workspace' ? "#27272A" : "transparent", color: i === idx && activeView === 'workspace' ? "white" : "#A1A1AA" }}><span className="mr-2">🎙️</span>{e.name}</button>
-          ))}
+        {/* Logo */}
+        <div className="p-5 pb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-sm font-bold" style={{ background: O }}>N</div>
+            <div>
+              <p className="text-sm font-semibold text-white tracking-tight">CMO Engine</p>
+              <p className="text-[10px] text-zinc-500 -mt-0.5">Naranja Media</p>
+            </div>
+          </div>
         </div>
-        {/* ── Sprint 2: Navigation ── */}
-        <div className="mx-3 my-2" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }} />
-        <div className="px-3 space-y-1 mb-2">
-          <button onClick={() => { setActiveView('learnings'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'learnings' ? "rgba(234,88,12,0.15)" : "transparent" }}>
-            <Brain size={14} style={{ color: activeView === 'learnings' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span className="flex-1" style={{ color: activeView === 'learnings' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Aprendizajes</span>
-            {draftLearnings > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: "#EA580C", color: "white" }}>{draftLearnings}</span>}
+
+        {/* + Nuevo contextual */}
+        <div className="px-3 mb-3 min-h-[44px]">
+          {contextualNew && (
+            <button
+              onClick={contextualNew.onClick}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-medium hover:opacity-90"
+              style={{ background: O }}
+            >
+              <Plus size={14} /> {contextualNew.label}
+            </button>
+          )}
+          {newsletterToast && activeView === "newsletter" && (
+            <p className="text-[10px] text-zinc-500 mt-2 px-1 text-center">Próximamente — flujo de newsletter</p>
+          )}
+        </div>
+
+        {/* Nav scrollable */}
+        <div className="flex-1 overflow-y-auto px-3 pb-2">
+          {/* Inicio */}
+          <button
+            onClick={() => goTo("inicio")}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+            style={{ background: activeView === "inicio" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <HomeIcon size={14} style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Inicio</span>
           </button>
-          <button onClick={() => { setActiveView('protocolos'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'protocolos' ? "rgba(234,88,12,0.15)" : "transparent" }}>
-            <BookOpen size={14} style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span style={{ color: activeView === 'protocolos' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Protocolos</span>
+
+          {/* CONTENIDO */}
+          <p className="text-[10px] uppercase tracking-widest text-zinc-600 px-2 mb-2 mt-4">Contenido</p>
+
+          {/* Podcast (expandible) */}
+          <div className="mb-1">
+            <button
+              onClick={() => setPodcastExpanded(v => !v)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all"
+              style={{ background: podcastActive ? "rgba(234,88,12,0.15)" : "transparent" }}
+            >
+              <Mic size={14} style={{ color: podcastActive ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+              <span className="flex-1" style={{ color: podcastActive ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Podcast</span>
+              {podcastExpanded
+                ? <ChevronUp size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
+                : <ChevronDown size={12} style={{ color: "rgba(255,255,255,0.35)" }} />}
+            </button>
+            {podcastExpanded && (
+              <div className="ml-4 mt-1 mb-1 pl-3 space-y-0.5" style={{ borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
+                {loadingEps ? (
+                  <p className="text-[11px] text-zinc-600 px-2 py-1">Cargando...</p>
+                ) : eps.length === 0 ? (
+                  <p className="text-[11px] text-zinc-600 px-2 py-1">Sin episodios aún</p>
+                ) : (
+                  <>
+                    {eps.slice(0, 5).map((e, i) => {
+                      const epActive = i === idx && activeView === "workspace";
+                      return (
+                        <button
+                          key={e.id || i}
+                          onClick={() => { setIdx(i); setPhase(e.status === "complete" ? "done" : null); setActiveView("workspace"); }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] truncate transition-all"
+                          style={{ background: epActive ? "#27272A" : "transparent", color: epActive ? "white" : "#A1A1AA" }}
+                        >
+                          {e.name}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => goTo("podcast")}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      Ver todos →
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Newsletter */}
+          <button
+            onClick={() => goTo("newsletter")}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+            style={{ background: activeView === "newsletter" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <Mail size={14} style={{ color: activeView === "newsletter" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span style={{ color: activeView === "newsletter" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Newsletter</span>
           </button>
-          <button onClick={() => { setActiveView('parrilla'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'parrilla' ? "rgba(234,88,12,0.15)" : "transparent" }}>
-            <Calendar size={14} style={{ color: activeView === 'parrilla' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span className="flex-1" style={{ color: activeView === 'parrilla' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Parrilla</span>
-            {parrillaInboxCount > 0 && <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: "#EA580C", color: "white" }}>{parrillaInboxCount}</span>}
+
+          {/* Fixture */}
+          <button
+            onClick={() => goTo("fixture")}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+            style={{ background: activeView === "fixture" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <Lightbulb size={14} style={{ color: activeView === "fixture" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span style={{ color: activeView === "fixture" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Fixture</span>
           </button>
-          <button onClick={() => { setActiveView('fixture'); setIdx(-1); }} className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all" style={{ background: activeView === 'fixture' ? "rgba(234,88,12,0.15)" : "transparent" }}>
-            <Lightbulb size={14} style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span style={{ color: activeView === 'fixture' ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Fixture</span>
+
+          {/* Parrilla */}
+          <button
+            onClick={() => goTo("parrilla")}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+            style={{ background: activeView === "parrilla" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <Calendar size={14} style={{ color: activeView === "parrilla" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+            <span className="flex-1" style={{ color: activeView === "parrilla" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Parrilla</span>
+            {parrillaInboxCount > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: "#EA580C", color: "white" }}>
+                {parrillaInboxCount}
+              </span>
+            )}
+          </button>
+
+          {/* SISTEMA — visualmente discreto */}
+          <p className="text-[9px] uppercase tracking-[0.15em] text-zinc-700 px-2 mb-1.5 mt-6">Sistema</p>
+
+          <button
+            onClick={() => goTo("protocolos")}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-[11px] transition-all mb-0.5 opacity-80 hover:opacity-100"
+            style={{ background: activeView === "protocolos" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <BookOpen size={12} style={{ color: activeView === "protocolos" ? "#EA580C" : "rgba(255,255,255,0.35)" }} />
+            <span style={{ color: activeView === "protocolos" ? "#EA580C" : "rgba(255,255,255,0.55)" }}>Protocolos</span>
+          </button>
+
+          <button
+            onClick={() => goTo("learnings")}
+            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left text-[11px] transition-all opacity-80 hover:opacity-100"
+            style={{ background: activeView === "learnings" ? "rgba(234,88,12,0.15)" : "transparent" }}
+          >
+            <Brain size={12} style={{ color: activeView === "learnings" ? "#EA580C" : "rgba(255,255,255,0.35)" }} />
+            <span className="flex-1" style={{ color: activeView === "learnings" ? "#EA580C" : "rgba(255,255,255,0.55)" }}>Aprendizajes</span>
+            {draftLearnings > 0 && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium" style={{ background: "#EA580C", color: "white" }}>
+                {draftLearnings}
+              </span>
+            )}
           </button>
         </div>
-        <div className="p-4 border-t border-zinc-800"><p className="text-[10px] text-zinc-600">CMO Stories · v0.4</p></div>
+
+        <div className="p-4 border-t border-zinc-800">
+          <p className="text-[10px] text-zinc-600">CMO Stories · v0.4</p>
+        </div>
       </div>
 
       {/* MAIN */}
       <div className="flex-1 overflow-y-auto">
         {activeView === 'learnings' ? (
-          <LearningsReview onBack={() => setActiveView('workspace')} onApplied={() => setLearnings(prev => prev.map(l => l.status === 'draft' ? { ...l, status: 'reviewed' } : l))} />
+          <LearningsReview onBack={() => setActiveView('inicio')} onApplied={() => setLearnings(prev => prev.map(l => l.status === 'draft' ? { ...l, status: 'reviewed' } : l))} />
         ) : activeView === 'protocolos' ? (
-          <ProtocolosViewer onBack={() => setActiveView('workspace')} />
+          <ProtocolosViewer onBack={() => setActiveView('inicio')} />
         ) : activeView === 'fixture' ? (
-          <FixtureBoard onBack={() => setActiveView('workspace')} />
+          <FixtureBoard onBack={() => setActiveView('inicio')} />
         ) : activeView === 'parrilla' ? (
-          <ParrillaView onBack={() => setActiveView('workspace')} />
-        ) : !ep ? (
+          <ParrillaView onBack={() => setActiveView('inicio')} />
+        ) : activeView === 'inicio' ? (
+          <InicioView
+            eps={eps}
+            draftLearnings={draftLearnings}
+            onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
+            onGo={goTo}
+            onOpenUpload={() => setShowUp(true)}
+          />
+        ) : activeView === 'newsletter' ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: OL }}><FileText size={28} color={O} /></div>
-            <h2 className="text-xl font-semibold text-stone-800 mb-2">Bienvenido a CMO Engine</h2>
-            <p className="text-sm text-stone-500 mb-6 max-w-sm">Sube la transcripción de tu episodio y genera todo el contenido de postproducción automáticamente.</p>
-            <button onClick={() => setShowUp(true)} className="flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}><Plus size={16} /> Cargar primer episodio</button>
+            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: OL }}><Mail size={28} color={O} /></div>
+            <h2 className="text-xl font-semibold text-stone-800 mb-2">Newsletter</h2>
+            <p className="text-sm text-stone-500 mb-2 max-w-sm">Aún no hay ediciones.</p>
+            <p className="text-xs text-stone-400 max-w-sm">El flujo de Newsletter llega en un próximo sprint.</p>
           </div>
+        ) : activeView === 'podcast' ? (
+          <div className="max-w-3xl mx-auto px-6 py-8">
+            <div className="mb-6">
+              <div className="flex items-center gap-1.5 text-xs text-stone-400 mb-2">
+                <button onClick={() => goTo('inicio')} className="hover:text-stone-600 transition-colors">CMO</button>
+                <span>/</span>
+                <span className="text-stone-600 font-medium">Podcast</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-bold text-stone-900">Podcast</h1>
+                <button onClick={() => setShowUp(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white hover:opacity-90" style={{ background: O }}>
+                  <Plus size={12} /> Nuevo episodio
+                </button>
+              </div>
+              <p className="text-sm text-stone-500 mt-1">Todos los episodios</p>
+            </div>
+            {loadingEps ? (
+              <Skel n={5} />
+            ) : eps.length === 0 ? (
+              <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+                <p className="text-sm text-stone-500 mb-4">Aún no cargaste ningún episodio.</p>
+                <button onClick={() => setShowUp(true)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>
+                  <Plus size={14} /> Cargá tu primer episodio
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {eps.map((e, i) => (
+                  <button
+                    key={e.id || i}
+                    onClick={() => { setIdx(i); setPhase(e.status === "complete" ? "done" : null); setActiveView('workspace'); }}
+                    className="w-full flex items-center justify-between gap-3 text-left rounded-xl border border-stone-200 bg-white px-4 py-3 hover:border-orange-200 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: OL }}>
+                        <Mic size={14} color={O} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-800 truncate">{e.name}</p>
+                        {e.status === 'complete' && <p className="text-[11px] text-green-600 flex items-center gap-1 mt-0.5"><CheckCircle2 size={10} /> Completo</p>}
+                      </div>
+                    </div>
+                    <ChevronDown size={14} color={MU} className="rotate-[-90deg] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : !ep ? (
+          <InicioView
+            eps={eps}
+            draftLearnings={draftLearnings}
+            onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
+            onGo={goTo}
+            onOpenUpload={() => setShowUp(true)}
+          />
         ) : (
           <div className="max-w-3xl mx-auto px-6 py-6">
+            {/* Breadcrumb — Sprint 1 */}
+            <div className="mb-3 flex items-center gap-1.5 text-xs text-stone-400">
+              <button onClick={() => goTo('inicio')} className="hover:text-stone-600 transition-colors">CMO</button>
+              <span>/</span>
+              <button onClick={() => goTo('podcast')} className="hover:text-stone-600 transition-colors">Podcast</button>
+              <span>/</span>
+              <span className="text-stone-600 font-medium truncate max-w-[320px]">{ep.name}</span>
+            </div>
             <div className="mb-5"><h1 className="text-xl font-bold text-stone-900">{ep.name}</h1>
               {phase === "angles" && <p className="text-xs text-orange-500 mt-1 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Analizando episodio...</p>}
               {phase === "waiting_selection" && <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">✨ Selecciona los ángulos que más te gusten</p>}
