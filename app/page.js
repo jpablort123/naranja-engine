@@ -668,7 +668,7 @@ export default function Home() {
     const newEp = await api("/api/episodes", { method: "POST", body: JSON.stringify({ name, transcript }) });
     if (newEp.error) { alert("Error: " + newEp.error); return; }
     setEps(prev => [newEp, ...prev]);
-    setIdx(0); setShowUp(false); setTab("contenido"); setPhase("angles");
+    setIdx(0); setShowUp(false); setTab("contenido"); setPhase("angles"); setActiveView("workspace");
 
     // Phase 1: Mapa + Ángulos (automatic)
     const r1 = await generate({ episode_id: newEp.id, phase: "angles" });
