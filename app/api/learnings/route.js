@@ -15,11 +15,12 @@ export async function GET(req) {
   return NextResponse.json(data);
 }
 
-// POST - save a draft learning
+// POST - save a draft learning (episode_id O newsletter_id; nunca ambos)
 export async function POST(req) {
   const body = await req.json();
   const { data, error } = await db.from('learnings').insert({
-    episode_id: body.episode_id,
+    episode_id: body.episode_id || null,
+    newsletter_id: body.newsletter_id || null,
     section: body.section,
     original_content: body.original_content,
     feedback: body.feedback,

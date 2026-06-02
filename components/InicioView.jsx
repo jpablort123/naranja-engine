@@ -23,8 +23,9 @@ function Card({ icon: Icon, title, children, onClick, variant = "default" }) {
   );
 }
 
-export default function InicioView({ eps, draftLearnings, onOpenEpisode, onGo, onOpenUpload }) {
+export default function InicioView({ eps, nls, draftLearnings, onOpenEpisode, onOpenNl, onGo, onOpenUpload, onOpenNlUpload }) {
   const latestEp = eps?.[0];
+  const latestNl = nls?.[0];
 
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
@@ -65,8 +66,31 @@ export default function InicioView({ eps, draftLearnings, onOpenEpisode, onGo, o
 
         {/* NEWSLETTER */}
         <Card icon={Mail} title="Newsletter" onClick={() => onGo("newsletter")}>
-          <p className="text-sm text-stone-400 italic">Aún sin ediciones</p>
-          <p className="text-xs text-stone-400 mt-1">El flujo de newsletter llega pronto</p>
+          {latestNl ? (
+            <>
+              <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Última edición</p>
+              <p
+                className="text-sm font-medium text-stone-800 mb-3 line-clamp-2 hover:text-orange-600 transition-colors"
+                onClick={(e) => { e.stopPropagation(); onOpenNl?.(0); }}
+              >
+                {latestNl.name}
+              </p>
+              <p className="text-xs text-stone-500">
+                Próxima: <span className="text-stone-400 italic">pendiente</span>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-stone-500 mb-3">Aún no hay ediciones.</p>
+              <span
+                onClick={(e) => { e.stopPropagation(); onOpenNlUpload?.(); }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white hover:opacity-90 cursor-pointer"
+                style={{ background: O }}
+              >
+                <Plus size={12} /> Nueva edición
+              </span>
+            </>
+          )}
         </Card>
 
         {/* IDEAS CALIENTES (FIXTURE) */}

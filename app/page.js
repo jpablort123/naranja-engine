@@ -1,244 +1,22 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, Pencil, Save, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
+import { ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
 import dynamic from "next/dynamic";
+import {
+  O, OL, OB, GR, GL, MU,
+  api, CopyBtn, BankBtn, Skel, Badge,
+  EditableText, ApplyBar, EditModal, AIEditBtn,
+  SendToParrillaBtn,
+} from "@/components/ui";
 const LearningsReview = dynamic(() => import("@/components/LearningsReview"), { ssr: false });
 const ProtocolosViewer = dynamic(() => import("@/components/ProtocolosViewer"), { ssr: false });
 const FixtureBoard = dynamic(() => import("@/components/FixtureBoard"), { ssr: false });
 const ParrillaView = dynamic(() => import("@/components/ParrillaView"), { ssr: false });
 const InicioView = dynamic(() => import("@/components/InicioView"), { ssr: false });
+const NewsletterUploadModal = dynamic(() => import("@/components/NewsletterUploadModal"), { ssr: false });
+const NewsletterView = dynamic(() => import("@/components/NewsletterView"), { ssr: false });
 
-const O = "#EA580C", OL = "#FFF7ED", OB = "#FED7AA", GR = "#16A34A", GL = "#F0FDF4", MU = "#78716A";
-
-const ANGLE_TYPES = {
-  contraste: { bg: "#EFF6FF", c: "#1E40AF", label: "Contraste" },
-  dato_absurdo: { bg: "#FDF2F8", c: "#BE185D", label: "Dato absurdo" },
-  secreto: { bg: "#F5F3FF", c: "#6D28D9", label: "Secreto" },
-  cliche_no_practicado: { bg: "#FFFBEB", c: "#B45309", label: "Cliché no practicado" },
-  contrarian: { bg: "#FFF1F2", c: "#BE123C", label: "Contrarian" },
-  mecanismo_invisible: { bg: "#F0FDF4", c: "#15803D", label: "Mecanismo invisible" },
-  cambio_paradigma: { bg: "#ECFEFF", c: "#0E7490", label: "Cambio de paradigma" },
-  tension_real: { bg: "#FFFBEB", c: "#B45309", label: "Tensión real" },
-  barrera_emocional: { bg: "#FEF2F2", c: "#DC2626", label: "Barrera emocional" },
-  historia_personal: { bg: "#F5F3FF", c: "#6D28D9", label: "Historia personal" },
-};
-const MINADO_CATS = {
-  "DATO ABSURDO": { bg: "#EFF6FF", c: "#1E40AF" }, "INSIGHT ACCIONABLE": { bg: "#F0FDF4", c: "#15803D" },
-  "CONFESIÓN": { bg: "#F5F3FF", c: "#6D28D9" }, "IDEA CONTRARIAN": { bg: "#FFF1F2", c: "#BE123C" },
-  "HISTORIA CON REMATE": { bg: "#FFFBEB", c: "#B45309" }, "TENSIÓN SIN RESOLVER": { bg: "#FDF2F8", c: "#BE185D" },
-};
-
-// ═══ API HELPERS ═══
-async function api(path, opts) {
-  const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
-  return r.json();
-}
 async function generate(body) { return api("/api/generate", { method: "POST", body: JSON.stringify(body) }); }
-
-// ═══ SMALL COMPONENTS ═══
-function CopyBtn({ text }) {
-  const [ok, s] = useState(false);
-  return <button onClick={() => { navigator.clipboard.writeText(text); s(true); setTimeout(() => s(false), 1500); }} className="p-1.5 rounded-lg hover:bg-stone-100 transition-all shrink-0" title="Copiar">{ok ? <Check size={14} color={GR} /> : <Copy size={14} color={MU} />}</button>;
-}
-function BankBtn({ payload }) {
-  const [added, setAdded] = useState(false);
-  const click = async (e) => {
-    e.stopPropagation();
-    if (added) return;
-    await api("/api/ideas", { method: "POST", body: JSON.stringify(payload) });
-    setAdded(true);
-    setTimeout(() => setAdded(false), 2000);
-  };
-  if (added) return <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: GL, color: GR }}><Check size={11} /> Agregado</span>;
-  return <button onClick={click} title="Llevar al banco de ideas" className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg text-stone-500 border border-stone-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors shrink-0"><Lightbulb size={11} /> Al banco</button>;
-}
-function Skel({ n = 3 }) { return <div className="space-y-2.5 py-1">{Array.from({ length: n }).map((_, i) => <div key={i} className="h-3 rounded-md animate-pulse bg-stone-200" style={{ width: `${88 - i * 14}%` }} />)}</div>; }
-function Badge({ label }) {
-  const s = ANGLE_TYPES[label] || MINADO_CATS[label] || { bg: "#F4F4F5", c: "#52525B" };
-  return <span className="text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: s.bg, color: s.c }}>{s.label || label}</span>;
-}
-
-// ═══ EDITABLE TEXT ═══
-function EditableText({ text, onSave, multiline = false, className = "" }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(text);
-  useEffect(() => setVal(text), [text]);
-  if (!editing) return (
-    <div className={`group relative cursor-text ${className}`} onClick={() => setEditing(true)}>
-      <div className="absolute -right-1 -top-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded flex items-center gap-1"><Pencil size={9} /> editar</span>
-      </div>
-      {multiline ? <p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{text}</p> : <span>{text}</span>}
-    </div>
-  );
-  return (
-    <div className="relative">
-      {multiline ? (
-        <textarea value={val} onChange={e => setVal(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Escape') { setVal(text); setEditing(false); } }}
-          className="w-full text-sm text-stone-700 leading-relaxed border border-orange-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-orange-200 min-h-[100px] resize-y" />
-      ) : (
-        <input value={val} onChange={e => setVal(e.target.value)} autoFocus onKeyDown={e => { if (e.key === 'Enter') { onSave(val); setEditing(false); } if (e.key === 'Escape') { setVal(text); setEditing(false); } }}
-          className="w-full text-sm text-stone-700 border border-orange-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-200" />
-      )}
-      <div className="flex gap-1.5 mt-1.5 justify-end">
-        <button onClick={() => { setVal(text); setEditing(false); }} className="text-xs text-stone-400 hover:text-stone-600 px-2 py-1">Cancelar</button>
-        <button onClick={() => { onSave(val); setEditing(false); }} className="text-xs text-white px-3 py-1 rounded-lg hover:opacity-90" style={{ background: O }}><Save size={11} className="inline mr-1" />Guardar</button>
-      </div>
-    </div>
-  );
-}
-
-// ═══ FEEDBACK BAR ═══
-function ApplyBar({ feedbacks, onApply, applying, applied }) {
-  const count = Object.values(feedbacks || {}).filter(v => v?.trim()).length;
-  if (applied) return <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium mt-3" style={{ background: GL, color: GR }}><CheckCircle2 size={16} /> Cambios aplicados</div>;
-  if (count === 0) return null;
-  return <button onClick={onApply} disabled={applying} className="w-full mt-3 py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90" style={{ background: O }}>{applying ? <><Loader2 size={16} className="animate-spin" /> Aplicando...</> : <><Sparkles size={16} /> Aplicar cambios y aprender ({count})</>}</button>;
-}
-
-// ═══ EDIT WITH AI MODAL ═══
-function EditModal({ title, content, onClose, onApply }) {
-  const [fb, setFb] = useState(""); const [applying, setApplying] = useState(false); const [done, setDone] = useState(false);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
-      <div className="bg-white rounded-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200"><h3 className="font-semibold text-stone-800">{title}</h3><button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button></div>
-        <div className="flex flex-1 overflow-hidden">
-          <div className="flex-1 p-6 overflow-y-auto border-r border-stone-200"><p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-3">Contenido actual</p><p className="text-sm text-stone-700 leading-relaxed whitespace-pre-wrap">{content}</p></div>
-          <div className="flex-1 p-6 flex flex-col">
-            <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-3">Tu feedback</p>
-            <textarea value={fb} onChange={e => setFb(e.target.value)} placeholder="Escribe qué cambiarías y por qué..." className="flex-1 w-full text-sm border border-stone-200 rounded-xl p-4 resize-none focus:outline-none focus:border-orange-300 mb-4" />
-            {done ? <div className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium" style={{ background: GL, color: GR }}><CheckCircle2 size={16} /> Cambios aplicados</div> : (
-              <button onClick={async () => { if (!fb.trim()) return; setApplying(true); await onApply?.(fb); setApplying(false); setDone(true); }}
-                className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90"
-                style={{ background: fb.trim() ? O : "#D6D3D1", cursor: fb.trim() ? "pointer" : "not-allowed" }}>
-                {applying ? <><Loader2 size={16} className="animate-spin" /> Aplicando...</> : <><Sparkles size={16} /> Editar con IA y aprender</>}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function AIEditBtn({ onClick }) {
-  return <button onClick={onClick} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-orange-50 shrink-0" style={{ color: O, borderColor: OB }}><Sparkles size={12} /> Editar con IA</button>;
-}
-
-// ═══ SEND TO PARRILLA MODAL ═══
-// pieces: [{ key, title, content, content_type, preview }]
-function SendToParrillaModal({ pieces, ep, onClose, onSent }) {
-  const [selected, setSelected] = useState(() => Object.fromEntries(pieces.map(p => [p.key, true])));
-  const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
-
-  useEffect(() => {
-    const h = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
-
-  const toggle = (k) => setSelected(prev => ({ ...prev, [k]: !prev[k] }));
-  const count = Object.values(selected).filter(Boolean).length;
-
-  const [errMsg, setErrMsg] = useState(null);
-
-  const submit = async () => {
-    if (count === 0 || submitting) return;
-    setSubmitting(true);
-    setErrMsg(null);
-    const toSend = pieces.filter(p => selected[p.key]).map(p => ({
-      title: p.title,
-      content: p.content,
-      content_type: p.content_type,
-      origin_type: "episode",
-      origin_id: ep.id,
-      origin_label: `Ep. ${ep.name}`,
-    }));
-    try {
-      const payload = { items: toSend, idea_group_id: ep.id, idea_group_title: ep.name };
-      console.log("[Episode→Parrilla] enviando batch:", payload);
-      const result = await api("/api/parrilla/batch", { method: "POST", body: JSON.stringify(payload) });
-      console.log("[Episode→Parrilla] respuesta:", result);
-      if (result && result.error) {
-        setErrMsg(`No pude enviar a la parrilla: ${result.error}. ¿Corriste la SQL de supabase/parrilla_items.sql?`);
-        setSubmitting(false);
-        return;
-      }
-      setDone(true);
-      setTimeout(() => { onSent?.(); onClose(); }, 1400);
-    } catch (e) {
-      console.error("[Episode→Parrilla] network error:", e);
-      setErrMsg(`Error de red: ${e.message || e}`);
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div onClick={onClose} className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}>
-      <div onClick={e => e.stopPropagation()} className="bg-white rounded-2xl w-full max-w-xl overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-stone-200">
-          <h3 className="font-semibold text-stone-800">📅 Enviar a Parrilla</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-stone-100"><X size={18} color={MU} /></button>
-        </div>
-        <div className="p-6 flex-1 overflow-y-auto space-y-2">
-          {errMsg && (
-            <div className="mb-3 p-3 rounded-xl border border-red-200 bg-red-50 text-xs text-red-700">⚠️ {errMsg}</div>
-          )}
-          <p className="text-xs text-stone-500 mb-3">Seleccioná las piezas que querés enviar al inbox de la Parrilla.</p>
-          {pieces.length === 0 ? (
-            <p className="text-sm text-stone-400 italic">No hay piezas para enviar.</p>
-          ) : pieces.map(p => {
-            const on = !!selected[p.key];
-            return (
-              <label key={p.key} className="flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-colors"
-                style={{ background: on ? OL : "white", borderColor: on ? OB : "#E7E5E4" }}>
-                <input type="checkbox" checked={on} onChange={() => toggle(p.key)}
-                  className="mt-0.5 w-4 h-4 accent-orange-600 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-stone-800 truncate">{p.label_prefix}{p.title}</p>
-                  {p.preview && <p className="text-xs text-stone-500 mt-0.5 line-clamp-2">{p.preview}</p>}
-                </div>
-              </label>
-            );
-          })}
-        </div>
-        <div className="px-6 py-4 border-t border-stone-200 flex items-center gap-2">
-          {done ? (
-            <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: GL, color: GR }}>
-              <CheckCircle2 size={16} /> Enviadas {count} pieza{count === 1 ? "" : "s"} al inbox
-            </div>
-          ) : (
-            <>
-              <p className="flex-1 text-xs text-stone-500">{count} pieza{count === 1 ? "" : "s"} seleccionada{count === 1 ? "" : "s"}</p>
-              <button onClick={onClose} className="px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100">Cancelar</button>
-              <button onClick={submit} disabled={count === 0 || submitting} className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
-                style={{ background: count && !submitting ? O : "#D6D3D1", cursor: count && !submitting ? "pointer" : "not-allowed" }}>
-                {submitting ? <><Loader2 size={14} className="animate-spin" /> Enviando...</> : `Enviar ${count}`}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SendToParrillaBtn({ pieces, ep, onSent }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <>
-      <button onClick={() => setOpen(true)}
-        disabled={pieces.length === 0}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border hover:bg-orange-50 disabled:opacity-50 disabled:cursor-not-allowed"
-        style={{ color: O, borderColor: OB }}>
-        <Calendar size={12} /> Enviar a Parrilla
-      </button>
-      {open && <SendToParrillaModal pieces={pieces} ep={ep} onClose={() => setOpen(false)} onSent={onSent} />}
-    </>
-  );
-}
 
 // ═══ UPLOAD MODAL ═══
 function UploadModal({ onClose, onSubmit }) {
@@ -484,7 +262,7 @@ function RepurposeTab({ ep, onUpdate, onLearn }) {
   return <div>
     {rp && parrillaPieces.length > 0 && (
       <div className="mb-4 flex justify-end">
-        <SendToParrillaBtn pieces={parrillaPieces} ep={ep} />
+        <SendToParrillaBtn pieces={parrillaPieces} source={{ id: ep.id, name: ep.name, origin_type: 'episode', label_prefix: 'Ep. ' }} />
       </div>
     )}
     {!rp && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
@@ -570,7 +348,7 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
   return <div>
     {parrillaPieces.length > 0 && (
       <div className="mb-4 flex justify-end">
-        <SendToParrillaBtn pieces={parrillaPieces} ep={ep} />
+        <SendToParrillaBtn pieces={parrillaPieces} source={{ id: ep.id, name: ep.name, origin_type: 'episode', label_prefix: 'Ep. ' }} />
       </div>
     )}
     {/* VOZ EN OFF */}
@@ -621,15 +399,23 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
-  const [activeView, setActiveView] = useState("inicio"); // inicio | podcast | newsletter | workspace | learnings | protocolos | fixture | parrilla
+  const [activeView, setActiveView] = useState("inicio"); // inicio | podcast | newsletter | newsletter_workspace | workspace | learnings | protocolos | fixture | parrilla
   const [parrillaInboxCount, setParrillaInboxCount] = useState(0);
   const [podcastExpanded, setPodcastExpanded] = useState(true);
-  const [newsletterToast, setNewsletterToast] = useState(false);
+
+  // ── Sprint 3: Newsletter state
+  const [nls, setNls] = useState([]); const [nlIdx, setNlIdx] = useState(-1);
+  const [nlPhase, setNlPhase] = useState(null);
+  const [loadingNls, setLoadingNls] = useState(true);
+  const [showNlUpload, setShowNlUpload] = useState(false);
+  const [newsletterExpanded, setNewsletterExpanded] = useState(true);
 
   const ep = idx >= 0 ? eps[idx] : null;
+  const nl = nlIdx >= 0 ? nls[nlIdx] : null;
 
   useEffect(() => {
     api("/api/episodes").then(data => { setEps(Array.isArray(data) ? data : []); setLoadingEps(false); });
+    api("/api/newsletters").then(data => { setNls(Array.isArray(data) ? data : []); setLoadingNls(false); });
   }, []);
 
   // Cargar count del inbox para el badge del sidebar (refresca cuando entra al view)
@@ -662,6 +448,61 @@ export default function Home() {
     api("/api/learnings", { method: "POST", body: JSON.stringify(learning) });
     setLearnings(prev => [...prev, { ...learning, status: "draft" }]);
   }, [ep]);
+
+  // ── Sprint 3: Newsletter helpers (espejo de los del podcast) ──
+  const updateNl = useCallback((patch) => {
+    setNls(prev => prev.map((n, i) => i === nlIdx ? { ...n, ...patch } : n));
+    if (nl?.id) {
+      const cleanPatch = { ...patch };
+      if (Object.keys(cleanPatch).length > 0) {
+        api("/api/newsletters", { method: "PUT", body: JSON.stringify({ id: nl.id, ...cleanPatch }) });
+      }
+    }
+  }, [nlIdx, nl]);
+
+  const addLearningNl = useCallback((section, feedback) => {
+    if (!feedback?.trim() || !nl?.id) return;
+    const learning = { newsletter_id: nl.id, section, feedback, original_content: "", target_protocol_name: section };
+    api("/api/learnings", { method: "POST", body: JSON.stringify(learning) });
+    setLearnings(prev => [...prev, { ...learning, status: "draft" }]);
+  }, [nl]);
+
+  const startNlGen = useCallback(async (name, articulo) => {
+    const newNl = await api("/api/newsletters", { method: "POST", body: JSON.stringify({ name, articulo }) });
+    if (newNl.error) { alert("Error: " + newNl.error); return; }
+    setNls(prev => [newNl, ...prev]);
+    setNlIdx(0); setShowNlUpload(false); setNlPhase("ideas"); setActiveView("newsletter_workspace");
+
+    const r1 = await api("/api/newsletters/generate", {
+      method: "POST",
+      body: JSON.stringify({ newsletter_id: newNl.id, phase: "ideas" }),
+    });
+    if (r1?.result) {
+      setNls(prev => prev.map(n => n.id === newNl.id
+        ? { ...n, resumen: r1.result.resumen, ideas: r1.result.ideas, status: "ideas_ready" }
+        : n));
+    } else if (r1?.error) {
+      alert("Error generando ideas: " + r1.error);
+    }
+    setNlPhase("waiting_selection");
+  }, []);
+
+  const generateNlRepurpose = useCallback(async (selectedIdeas) => {
+    if (!nl?.id) return;
+    setNlPhase("repurpose");
+    const r = await api("/api/newsletters/generate", {
+      method: "POST",
+      body: JSON.stringify({ newsletter_id: nl.id, phase: "repurpose", selected_ideas: selectedIdeas }),
+    });
+    if (r?.result) {
+      setNls(prev => prev.map(n => n.id === nl.id
+        ? { ...n, repurpose_content: r.result, status: "complete" }
+        : n));
+    } else if (r?.error) {
+      alert("Error generando repurpose: " + r.error);
+    }
+    setNlPhase("done");
+  }, [nl]);
 
   // ═══ FLOW: UPLOAD → ANGLES ═══
   const startGen = useCallback(async (name, transcript) => {
@@ -704,10 +545,10 @@ export default function Home() {
   const tabs = [{ key: "contenido", label: "Contenido", icon: "📝" }, { key: "repurpose", label: "Repurpose", icon: "🔄" }, { key: "minado", label: "Minado", icon: "⛏️" }];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
-  // ── Sprint 1: acción contextual del botón "+ Nuevo" según la superficie activa
+  // ── Acción contextual del botón "+ Nuevo" según la superficie activa
   const contextualNew = (() => {
-    if (activeView === "newsletter") {
-      return { label: "Nueva edición", onClick: () => { setNewsletterToast(true); setTimeout(() => setNewsletterToast(false), 2400); } };
+    if (activeView === "newsletter" || activeView === "newsletter_workspace") {
+      return { label: "Nueva edición", onClick: () => setShowNlUpload(true) };
     }
     if (activeView === "inicio" || activeView === "podcast" || activeView === "workspace") {
       return { label: "Nuevo episodio", onClick: () => setShowUp(true) };
@@ -715,14 +556,16 @@ export default function Home() {
     return null; // fixture / parrilla / learnings / protocolos: cada vista ya tiene su propia creación interna
   })();
 
-  // ── Sprint 1: navegación helper desde InicioView
+  // ── Navegación helper desde InicioView y sidebar
   const goTo = (view) => {
     setIdx(-1);
+    setNlIdx(-1);
     setActiveView(view);
   };
 
-  // ── Sprint 1: estado activo del item "Podcast" (incluye workspace al estar viendo un episodio)
+  // ── Estado activo de items expandibles
   const podcastActive = activeView === "podcast" || activeView === "workspace";
+  const newsletterActive = activeView === "newsletter" || activeView === "newsletter_workspace";
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#FAFAF9", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
@@ -749,9 +592,6 @@ export default function Home() {
             >
               <Plus size={14} /> {contextualNew.label}
             </button>
-          )}
-          {newsletterToast && activeView === "newsletter" && (
-            <p className="text-[10px] text-zinc-500 mt-2 px-1 text-center">Próximamente — flujo de newsletter</p>
           )}
         </div>
 
@@ -816,15 +656,51 @@ export default function Home() {
             )}
           </div>
 
-          {/* Newsletter */}
-          <button
-            onClick={() => goTo("newsletter")}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
-            style={{ background: activeView === "newsletter" ? "rgba(234,88,12,0.15)" : "transparent" }}
-          >
-            <Mail size={14} style={{ color: activeView === "newsletter" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span style={{ color: activeView === "newsletter" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Newsletter</span>
-          </button>
+          {/* Newsletter (expandible) */}
+          <div className="mb-1">
+            <button
+              onClick={() => setNewsletterExpanded(v => !v)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all"
+              style={{ background: newsletterActive ? "rgba(234,88,12,0.15)" : "transparent" }}
+            >
+              <Mail size={14} style={{ color: newsletterActive ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+              <span className="flex-1" style={{ color: newsletterActive ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Newsletter</span>
+              {newsletterExpanded
+                ? <ChevronUp size={12} style={{ color: "rgba(255,255,255,0.35)" }} />
+                : <ChevronDown size={12} style={{ color: "rgba(255,255,255,0.35)" }} />}
+            </button>
+            {newsletterExpanded && (
+              <div className="ml-4 mt-1 mb-1 pl-3 space-y-0.5" style={{ borderLeft: "1px solid rgba(255,255,255,0.06)" }}>
+                {loadingNls ? (
+                  <p className="text-[11px] text-zinc-600 px-2 py-1">Cargando...</p>
+                ) : nls.length === 0 ? (
+                  <p className="text-[11px] text-zinc-600 px-2 py-1">Sin ediciones aún</p>
+                ) : (
+                  <>
+                    {nls.slice(0, 5).map((n, i) => {
+                      const nlActive = i === nlIdx && activeView === "newsletter_workspace";
+                      return (
+                        <button
+                          key={n.id || i}
+                          onClick={() => { setNlIdx(i); setNlPhase(n.status === "complete" ? "done" : n.status === "ideas_ready" ? "waiting_selection" : null); setActiveView("newsletter_workspace"); }}
+                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] truncate transition-all"
+                          style={{ background: nlActive ? "#27272A" : "transparent", color: nlActive ? "white" : "#A1A1AA" }}
+                        >
+                          {n.name}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => goTo("newsletter")}
+                      className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      Ver todas →
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Fixture */}
           <button
@@ -896,17 +772,87 @@ export default function Home() {
         ) : activeView === 'inicio' ? (
           <InicioView
             eps={eps}
+            nls={nls}
             draftLearnings={draftLearnings}
             onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
+            onOpenNl={(i) => { setNlIdx(i); setNlPhase(nls[i]?.status === "complete" ? "done" : nls[i]?.status === "ideas_ready" ? "waiting_selection" : null); setActiveView('newsletter_workspace'); }}
             onGo={goTo}
             onOpenUpload={() => setShowUp(true)}
+            onOpenNlUpload={() => setShowNlUpload(true)}
           />
         ) : activeView === 'newsletter' ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-8">
-            <div className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5" style={{ background: OL }}><Mail size={28} color={O} /></div>
-            <h2 className="text-xl font-semibold text-stone-800 mb-2">Newsletter</h2>
-            <p className="text-sm text-stone-500 mb-2 max-w-sm">Aún no hay ediciones.</p>
-            <p className="text-xs text-stone-400 max-w-sm">El flujo de Newsletter llega en un próximo sprint.</p>
+          <div className="max-w-3xl mx-auto px-6 py-8">
+            <div className="mb-6">
+              <div className="flex items-center gap-1.5 text-xs text-stone-400 mb-2">
+                <button onClick={() => goTo('inicio')} className="hover:text-stone-600 transition-colors">CMO</button>
+                <span>/</span>
+                <span className="text-stone-600 font-medium">Newsletter</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <h1 className="text-2xl font-bold text-stone-900">Newsletter</h1>
+                <button onClick={() => setShowNlUpload(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white hover:opacity-90" style={{ background: O }}>
+                  <Plus size={12} /> Nueva edición
+                </button>
+              </div>
+              <p className="text-sm text-stone-500 mt-1">Todas las ediciones</p>
+            </div>
+            {loadingNls ? (
+              <Skel n={5} />
+            ) : nls.length === 0 ? (
+              <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+                <p className="text-sm text-stone-500 mb-4">Aún no hay ediciones de newsletter.</p>
+                <button onClick={() => setShowNlUpload(true)} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>
+                  <Plus size={14} /> Nueva edición
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {nls.map((n, i) => (
+                  <button
+                    key={n.id || i}
+                    onClick={() => { setNlIdx(i); setNlPhase(n.status === "complete" ? "done" : n.status === "ideas_ready" ? "waiting_selection" : null); setActiveView('newsletter_workspace'); }}
+                    className="w-full flex items-center justify-between gap-3 text-left rounded-xl border border-stone-200 bg-white px-4 py-3 hover:border-orange-200 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: OL }}>
+                        <Mail size={14} color={O} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-stone-800 truncate">{n.name}</p>
+                        {n.status === 'complete' && <p className="text-[11px] text-green-600 flex items-center gap-1 mt-0.5"><CheckCircle2 size={10} /> Completo</p>}
+                        {n.status === 'ideas_ready' && <p className="text-[11px] text-amber-600 flex items-center gap-1 mt-0.5">✨ Ideas listas — esperando selección</p>}
+                      </div>
+                    </div>
+                    <ChevronDown size={14} color={MU} className="rotate-[-90deg] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : activeView === 'newsletter_workspace' && nl ? (
+          <div className="max-w-3xl mx-auto px-6 py-6">
+            {/* Breadcrumb */}
+            <div className="mb-3 flex items-center gap-1.5 text-xs text-stone-400">
+              <button onClick={() => goTo('inicio')} className="hover:text-stone-600 transition-colors">CMO</button>
+              <span>/</span>
+              <button onClick={() => goTo('newsletter')} className="hover:text-stone-600 transition-colors">Newsletter</button>
+              <span>/</span>
+              <span className="text-stone-600 font-medium truncate max-w-[320px]">{nl.name}</span>
+            </div>
+            <div className="mb-5">
+              <h1 className="text-xl font-bold text-stone-900">{nl.name}</h1>
+              {nlPhase === "ideas" && <p className="text-xs text-orange-500 mt-1 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Analizando artículo + extrayendo ideas...</p>}
+              {nlPhase === "waiting_selection" && <p className="text-xs text-amber-600 mt-1 flex items-center gap-1">✨ Selecciona las ideas que querés repurpose-ar</p>}
+              {nlPhase === "repurpose" && <p className="text-xs text-orange-500 mt-1 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Generando reel + carrusel + LinkedIn...</p>}
+              {nlPhase === "done" && <p className="text-xs text-green-600 mt-1 flex items-center gap-1"><CheckCircle2 size={12} /> Repurpose generado</p>}
+            </div>
+            <NewsletterView
+              nl={nl}
+              phase={nlPhase}
+              onUpdate={updateNl}
+              onLearn={addLearningNl}
+              onGenerateRepurpose={generateNlRepurpose}
+            />
           </div>
         ) : activeView === 'podcast' ? (
           <div className="max-w-3xl mx-auto px-6 py-8">
@@ -959,10 +905,13 @@ export default function Home() {
         ) : !ep ? (
           <InicioView
             eps={eps}
+            nls={nls}
             draftLearnings={draftLearnings}
             onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
+            onOpenNl={(i) => { setNlIdx(i); setNlPhase(nls[i]?.status === "complete" ? "done" : nls[i]?.status === "ideas_ready" ? "waiting_selection" : null); setActiveView('newsletter_workspace'); }}
             onGo={goTo}
             onOpenUpload={() => setShowUp(true)}
+            onOpenNlUpload={() => setShowNlUpload(true)}
           />
         ) : (
           <div className="max-w-3xl mx-auto px-6 py-6">
@@ -990,6 +939,7 @@ export default function Home() {
         )}
       </div>
       {showUp && <UploadModal onClose={() => setShowUp(false)} onSubmit={startGen} />}
+      {showNlUpload && <NewsletterUploadModal onClose={() => setShowNlUpload(false)} onSubmit={startNlGen} />}
     </div>
   );
 }
