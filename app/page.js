@@ -410,12 +410,27 @@ export default function Home() {
   const [showNlUpload, setShowNlUpload] = useState(false);
   const [newsletterExpanded, setNewsletterExpanded] = useState(true);
 
+  // ── Sprint 4: Inicio en vivo
+  const [ideas, setIdeas] = useState([]);
+  const [upcomingParrilla, setUpcomingParrilla] = useState([]);
+
   const ep = idx >= 0 ? eps[idx] : null;
   const nl = nlIdx >= 0 ? nls[nlIdx] : null;
 
   useEffect(() => {
     api("/api/episodes").then(data => { setEps(Array.isArray(data) ? data : []); setLoadingEps(false); });
     api("/api/newsletters").then(data => { setNls(Array.isArray(data) ? data : []); setLoadingNls(false); });
+    // ── Sprint 4: cargar datos del Inicio en vivo
+    api("/api/ideas").then(data => { setIdeas(Array.isArray(data) ? data : []); });
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    api(`/api/parrilla?status=scheduled&date_from=${today}`).then(data => {
+      setUpcomingParrilla(Array.isArray(data) ? data : []);
+    });
+    // Seed inicial del badge de aprendizajes con los drafts reales del DB
+    api("/api/learnings").then(data => {
+      if (Array.isArray(data)) setLearnings(data);
+    });
   }, []);
 
   // Cargar count del inbox para el badge del sidebar (refresca cuando entra al view)
@@ -773,6 +788,8 @@ export default function Home() {
           <InicioView
             eps={eps}
             nls={nls}
+            ideas={ideas}
+            upcomingParrilla={upcomingParrilla}
             draftLearnings={draftLearnings}
             onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
             onOpenNl={(i) => { setNlIdx(i); setNlPhase(nls[i]?.status === "complete" ? "done" : nls[i]?.status === "ideas_ready" ? "waiting_selection" : null); setActiveView('newsletter_workspace'); }}
@@ -906,6 +923,8 @@ export default function Home() {
           <InicioView
             eps={eps}
             nls={nls}
+            ideas={ideas}
+            upcomingParrilla={upcomingParrilla}
             draftLearnings={draftLearnings}
             onOpenEpisode={(i) => { setIdx(i); setPhase(eps[i]?.status === "complete" ? "done" : null); setActiveView('workspace'); }}
             onOpenNl={(i) => { setNlIdx(i); setNlPhase(nls[i]?.status === "complete" ? "done" : nls[i]?.status === "ideas_ready" ? "waiting_selection" : null); setActiveView('newsletter_workspace'); }}
