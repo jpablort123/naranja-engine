@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
 import dynamic from "next/dynamic";
 import {
   O, OL, OB, GR, GL, MU,
