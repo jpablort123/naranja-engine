@@ -1,23 +1,49 @@
 "use client";
 import { useState, useRef } from "react";
-import { X, Upload, FileText, Mail } from "lucide-react";
+import { X, Upload, FileText, Mail, Loader2 } from "lucide-react";
 import { O, OL, MU, GR } from "@/components/ui";
 
 export default function NewsletterUploadModal({ onClose, onSubmit }) {
   const [name, setName] = useState("");
   const [articulo, setArticulo] = useState("");
   const [fn, setFn] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [fileErr, setFileErr] = useState("");
   const fr = useRef(null);
 
-  const readFile = (f) => {
+  const readFile = async (f) => {
     if (!f) return;
+    setFileErr("");
+    const isDocx = /\.docx$/i.test(f.name);
+    if (isDocx) {
+      setFn(f.name);
+      setExtracting(true);
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await fetch("/api/newsletters/extract", { method: "POST", body: fd });
+        const data = await r.json();
+        if (!r.ok) {
+          setFileErr(data.error || "No se pudo extraer texto del .docx");
+          setFn("");
+        } else {
+          setArticulo(data.text);
+        }
+      } catch (err) {
+        setFileErr(err.message || "Error subiendo el archivo");
+        setFn("");
+      } finally {
+        setExtracting(false);
+      }
+      return;
+    }
     setFn(f.name);
     const r = new FileReader();
     r.onload = (e) => setArticulo(e.target.result);
     r.readAsText(f);
   };
 
-  const canSubmit = name.trim() && articulo.trim();
+  const canSubmit = name.trim() && articulo.trim() && !extracting;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.5)" }}>
@@ -44,11 +70,16 @@ export default function NewsletterUploadModal({ onClose, onSubmit }) {
 
           <div>
             <label className="text-sm font-medium text-stone-600 block mb-1.5">Artículo</label>
-            <p className="text-xs text-stone-400 mb-3">Pegá el texto del artículo ya escrito o subí un archivo .txt. El Engine NO redacta el newsletter.</p>
+            <p className="text-xs text-stone-400 mb-3">Pegá el texto del artículo ya escrito o subí un archivo .docx o .txt. El Engine NO redacta el newsletter.</p>
 
-            <input ref={fr} type="file" accept=".txt,.md" onChange={(e) => readFile(e.target.files?.[0])} className="hidden" />
+            <input ref={fr} type="file" accept=".docx,.txt,.md" onChange={(e) => readFile(e.target.files?.[0])} className="hidden" />
 
-            {fn ? (
+            {extracting ? (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-orange-50 border border-orange-200 mb-3">
+                <Loader2 size={16} color={O} className="animate-spin" />
+                <span className="text-sm text-orange-700 font-medium flex-1 truncate">Extrayendo texto de {fn}...</span>
+              </div>
+            ) : fn ? (
               <div className="flex items-center gap-2 p-3 rounded-xl bg-green-50 border border-green-200 mb-3">
                 <FileText size={16} color={GR} />
                 <span className="text-sm text-green-700 font-medium flex-1 truncate">{fn}</span>
@@ -64,8 +95,12 @@ export default function NewsletterUploadModal({ onClose, onSubmit }) {
                 className="border-2 border-dashed border-stone-200 rounded-xl p-5 text-center cursor-pointer hover:border-orange-300 hover:bg-orange-50/30 transition-all mb-3"
               >
                 <Upload size={20} color={MU} className="mx-auto mb-1.5" />
-                <p className="text-xs text-stone-500">Arrastra tu archivo .txt aquí o haz click para seleccionar</p>
+                <p className="text-xs text-stone-500">Arrastra tu archivo .docx o .txt aquí o haz click para seleccionar</p>
               </div>
+            )}
+
+            {fileErr && (
+              <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">{fileErr}</div>
             )}
 
             <p className="text-[10px] uppercase tracking-widest text-stone-400 mb-1.5">O pegá el texto</p>
