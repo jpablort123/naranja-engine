@@ -42,3 +42,25 @@ export async function PUT(req) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
+
+// DELETE /api/newsletters?id=...
+export async function DELETE(req) {
+  const { searchParams } = new URL(req.url);
+  const id = searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
+
+  // Borrar registros relacionados antes que el newsletter (learnings tiene FK real;
+  // parrilla_items e ideas son FK lógicas — limpieza para evitar huérfanos).
+  const learnDel = await db.from('learnings').delete().eq('newsletter_id', id);
+  if (learnDel.error) return NextResponse.json({ error: `learnings: ${learnDel.error.message}` }, { status: 500 });
+
+  const parrDel = await db.from('parrilla_items').delete().eq('origin_type', 'newsletter').eq('origin_id', id);
+  if (parrDel.error) return NextResponse.json({ error: `parrilla_items: ${parrDel.error.message}` }, { status: 500 });
+
+  const ideasDel = await db.from('ideas').delete().eq('origin_type', 'newsletter').eq('origin_id', id);
+  if (ideasDel.error) return NextResponse.json({ error: `ideas: ${ideasDel.error.message}` }, { status: 500 });
+
+  const { error } = await db.from('newsletters').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}

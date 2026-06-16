@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail, Trash2 } from "lucide-react";
 import dynamic from "next/dynamic";
 import {
   O, OL, OB, GR, GL, MU,
@@ -482,6 +482,28 @@ export default function Home() {
     setLearnings(prev => [...prev, { ...learning, status: "draft" }]);
   }, [nl]);
 
+  const deleteEp = useCallback(async (i) => {
+    const e = eps[i];
+    if (!e?.id) return;
+    if (!confirm(`¿Seguro que quieres eliminar este episodio?\n\n"${e.name}"`)) return;
+    const res = await api(`/api/episodes?id=${e.id}`, { method: "DELETE" });
+    if (res?.error) { alert("Error al eliminar: " + res.error); return; }
+    setEps(prev => prev.filter(x => x.id !== e.id));
+    if (idx === i) { setIdx(-1); setActiveView("podcast"); }
+    else if (idx > i) setIdx(idx - 1);
+  }, [eps, idx]);
+
+  const deleteNl = useCallback(async (i) => {
+    const n = nls[i];
+    if (!n?.id) return;
+    if (!confirm(`¿Seguro que quieres eliminar esta edición?\n\n"${n.name}"`)) return;
+    const res = await api(`/api/newsletters?id=${n.id}`, { method: "DELETE" });
+    if (res?.error) { alert("Error al eliminar: " + res.error); return; }
+    setNls(prev => prev.filter(x => x.id !== n.id));
+    if (nlIdx === i) { setNlIdx(-1); setActiveView("newsletter"); }
+    else if (nlIdx > i) setNlIdx(nlIdx - 1);
+  }, [nls, nlIdx]);
+
   const startNlGen = useCallback(async (name, articulo) => {
     const newNl = await api("/api/newsletters", { method: "POST", body: JSON.stringify({ name, articulo }) });
     if (newNl.error) { alert("Error: " + newNl.error); return; }
@@ -649,14 +671,23 @@ export default function Home() {
                     {eps.slice(0, 5).map((e, i) => {
                       const epActive = i === idx && activeView === "workspace";
                       return (
-                        <button
-                          key={e.id || i}
-                          onClick={() => { setIdx(i); setPhase(e.status === "complete" ? "done" : null); setActiveView("workspace"); }}
-                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] truncate transition-all"
-                          style={{ background: epActive ? "#27272A" : "transparent", color: epActive ? "white" : "#A1A1AA" }}
-                        >
-                          {e.name}
-                        </button>
+                        <div key={e.id || i} className="group relative">
+                          <button
+                            onClick={() => { setIdx(i); setPhase(e.status === "complete" ? "done" : null); setActiveView("workspace"); }}
+                            className="w-full text-left pl-2.5 pr-7 py-1.5 rounded-lg text-[11px] truncate transition-all"
+                            style={{ background: epActive ? "#27272A" : "transparent", color: epActive ? "white" : "#A1A1AA" }}
+                          >
+                            {e.name}
+                          </button>
+                          <button
+                            onClick={(ev) => { ev.stopPropagation(); deleteEp(i); }}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-opacity"
+                            title="Eliminar episodio"
+                            aria-label="Eliminar episodio"
+                          >
+                            <Trash2 size={11} style={{ color: "rgba(255,255,255,0.5)" }} />
+                          </button>
+                        </div>
                       );
                     })}
                     <button
@@ -695,14 +726,23 @@ export default function Home() {
                     {nls.slice(0, 5).map((n, i) => {
                       const nlActive = i === nlIdx && activeView === "newsletter_workspace";
                       return (
-                        <button
-                          key={n.id || i}
-                          onClick={() => { setNlIdx(i); setNlPhase(n.status === "complete" ? "done" : n.status === "ideas_ready" ? "waiting_selection" : null); setActiveView("newsletter_workspace"); }}
-                          className="w-full text-left px-2.5 py-1.5 rounded-lg text-[11px] truncate transition-all"
-                          style={{ background: nlActive ? "#27272A" : "transparent", color: nlActive ? "white" : "#A1A1AA" }}
-                        >
-                          {n.name}
-                        </button>
+                        <div key={n.id || i} className="group relative">
+                          <button
+                            onClick={() => { setNlIdx(i); setNlPhase(n.status === "complete" ? "done" : n.status === "ideas_ready" ? "waiting_selection" : null); setActiveView("newsletter_workspace"); }}
+                            className="w-full text-left pl-2.5 pr-7 py-1.5 rounded-lg text-[11px] truncate transition-all"
+                            style={{ background: nlActive ? "#27272A" : "transparent", color: nlActive ? "white" : "#A1A1AA" }}
+                          >
+                            {n.name}
+                          </button>
+                          <button
+                            onClick={(ev) => { ev.stopPropagation(); deleteNl(i); }}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-opacity"
+                            title="Eliminar edición"
+                            aria-label="Eliminar edición"
+                          >
+                            <Trash2 size={11} style={{ color: "rgba(255,255,255,0.5)" }} />
+                          </button>
+                        </div>
                       );
                     })}
                     <button
