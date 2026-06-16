@@ -45,7 +45,7 @@ export async function POST() {
       ).join('\n\n');
 
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 2000,
         system: `Eres el asistente de síntesis de aprendizajes de CMO Engine, un sistema de postproducción de podcasts. Tu trabajo es analizar un grupo de feedbacks que JP (el usuario) dio sobre contenido generado por IA, e identificar PATRONES reales de preferencia — no repetir cada feedback individual.
 
