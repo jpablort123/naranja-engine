@@ -1,6 +1,6 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 1 Junio 2026
+### Última actualización: 17 Junio 2026
 
 ---
 
@@ -18,7 +18,7 @@ Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranj
 
 - **Frontend + API:** Next.js 14 (App Router) en Vercel
 - **Base de datos:** Supabase (PostgreSQL) — proyecto `cmo-engine`, URL: `https://vuujvuyxvsbcewbpdgae.supabase.co`
-- **Generación:** API de Anthropic (Claude Sonnet) via server-side API routes (`@anthropic-ai/sdk`)
+- **Generación:** API de Anthropic (Claude Sonnet, modelo `claude-sonnet-4-6`) via server-side API routes (`@anthropic-ai/sdk`)
 - **Repo:** GitHub — `github.com/jpablort123/naranja-engine`
 - **Vercel URL:** la URL que Vercel asignó al proyecto naranja-engine
 - **API Key Anthropic:** clave "naranja-engine" en la consola de Anthropic (console.anthropic.com)
@@ -158,6 +158,11 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
   - Al guardar: patch en `generated_content[fmt]` con `source: 'manual'`, reemplazando `cuerpo`/`guion`
   - Crea automáticamente un `learning` draft (`original_content` = IA, `feedback` = manual) solo si hay versión IA con la que comparar
   - Sistema aprende silenciosamente de la diferencia entre lo que generó y lo que JP terminó escribiendo
+
+### Mejoras puntuales (17 Junio 2026)
+- **Modelo de Anthropic actualizado a `claude-sonnet-4-6`** (antes `claude-sonnet-4-20250514`, que dejó de ser válido y rompía `/api/generate` en producción). Cambiado en `lib/generation.js` y `app/api/learnings/synthesize/route.js`.
+- **Eliminar episodios y newsletters desde el sidebar:** botón basurita sutil en cada item, visible solo al hacer hover, con `confirm()` antes de borrar. Endpoints `DELETE /api/episodes?id=...` y `DELETE /api/newsletters?id=...` con limpieza en cascada previa: primero `learnings` (FK real probable), después `parrilla_items` e `ideas` filtrando por `origin_type` + `origin_id` (FK lógicas — limpieza para evitar huérfanos), y al final el recurso principal. Si el item borrado estaba seleccionado, `idx`/`nlIdx` se resetean y la vista cae al listado padre (`podcast` / `newsletter`).
+- **Upload de newsletters en `.docx` además de `.txt`/`.md`:** nuevo endpoint `POST /api/newsletters/extract` (runtime Node) que parsea el Word con `mammoth` y devuelve `{ text }` plano. El modal acepta `.docx`, muestra un loader naranja mientras extrae y muestra el error si el parseo falla. El texto extraído llega al mismo campo `articulo` que antes — el resto del pipeline (`POST /api/newsletters` → `/api/newsletters/generate`) no se tocó.
 
 ### Lo que NO funciona todavía
 - No hay chat embebido con contexto → Sprint 4
