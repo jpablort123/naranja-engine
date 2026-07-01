@@ -617,29 +617,7 @@ function IdeaPanel({ idea, onClose, onUpdate, onSent }) {
           )}
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-stone-200 px-8 py-4 flex items-center gap-3 shrink-0">
-          {sent ? (
-            <div className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium" style={{ background: GL, color: GR }}>
-              <CheckCircle2 size={16} /> Enviada a la parrilla
-            </div>
-          ) : confirmSend ? (
-            <>
-              <p className="flex-1 text-sm text-stone-600">¿Enviar a la parrilla? Saldrá del Fixture.</p>
-              <button onClick={() => setConfirmSend(false)} className="px-4 py-2 rounded-xl text-sm font-medium text-stone-600 hover:bg-stone-100">Cancelar</button>
-              <button onClick={sendToGrid} className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>Confirmar</button>
-            </>
-          ) : (
-            <>
-              <div className="flex-1" />
-              <button onClick={() => setConfirmSend(true)}
-                className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
-                style={{ background: O }}>
-                📋 Enviar a la parrilla
-              </button>
-            </>
-          )}
-        </div>
+        {/* Footer — envío a Parrilla oculto en esta versión */}
       </div>
 
       {editM && <EditAIModal title={editM.title} content={editM.content} onClose={() => setEditM(null)}

@@ -134,7 +134,7 @@ ${tx}`,
       updates.minado = result;
     }
 
-    // ═══ PHASE: REPURPOSE ═══
+    // ═══ PHASE: REPURPOSE (legacy) ═══
     // Selected angles → intros + reels + linkedin
     else if (phase === 'repurpose') {
       const anglesCtx = (selected_angles || []).map((a, i) => `${i + 1}. ${a.titulo}: ${a.descripcion}`).join('\n');
@@ -166,6 +166,77 @@ ${tx}`,
 
       result = { intros: r1.intros, reels: r2.reels, linkedin: r3.posts };
       updates.repurpose_content = result;
+    }
+
+    // ═══ PHASE: REELS_V2 ═══
+    // Selected angles → per-angle card with a single propuesta { hooks, desarrollo, ctas }
+    else if (phase === 'reels_v2') {
+      const angles = selected_angles || [];
+      const mapaCtx = mapa ? `TESIS: ${mapa.tesis}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nHISTORIA PERSONAL: ${mapa.historia_personal || 'No disponible'}` : '';
+      const sysReels = await buildSystem(['adn', 'reels']);
+
+      const cards = await Promise.all(angles.map(async (a) => {
+        const angleCtx = `ÁNGULO: ${a.titulo}\nDESCRIPCIÓN: ${a.descripcion}\n\nMAPA:\n${mapaCtx}`;
+        const r = await callClaude(
+          `${angleCtx}\n\nGenera UNA propuesta de guión de reel para este ángulo, desglosada en 4 partes independientes y claramente etiquetadas:\n\n1. HOOKS — 4 opciones (cada una: 5-10 palabras que enganchan el swipe).\n2. DESARROLLO — 1 bloque (cuerpo del guión, 120-180 palabras).\n3. CIERRES EDITORIALES — 3 opciones (cada una: 1-2 frases que rematan el argumento, sin pedir acción).\n4. CTAs DE ACCIÓN — 3 opciones (cada una: 1-2 frases que invitan explícitamente a una acción concreta).\n\nJSON estricto: { "hooks": ["h1","h2","h3","h4"], "desarrollo": "cuerpo del guión", "cierres": ["c1","c2","c3"], "ctas": ["cta1","cta2","cta3"] }`,
+          sysReels
+        );
+        return {
+          angulo_titulo: a.titulo,
+          angulo_descripcion: a.descripcion,
+          angulo_tipo: a.tipo,
+          propuestas: [{
+            hooks: (r.hooks || []).map(h => ({ texto: h })),
+            desarrollo: r.desarrollo || '',
+            cierres: (r.cierres || []).map(c => ({ texto: c })),
+            ctas: (r.ctas || []).map(c => ({ texto: c })),
+          }],
+        };
+      }));
+
+      result = { cards };
+      // Merge into existing repurpose_content JSONB
+      const { data: current } = await db.from('episodes').select('repurpose_content').eq('id', episode_id).single();
+      const merged = { ...(current?.repurpose_content || {}), reels_v2: cards };
+      updates.repurpose_content = merged;
+    }
+
+    // ═══ PHASE: REELS_VARIANT ═══
+    // Generate a new propuesta for a single angle. Client is responsible for merging into card.propuestas.
+    else if (phase === 'reels_variant') {
+      const a = body.angulo;
+      const mapaCtx = mapa ? `TESIS: ${mapa.tesis}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nHISTORIA PERSONAL: ${mapa.historia_personal || 'No disponible'}` : '';
+      const sysReels = await buildSystem(['adn', 'reels']);
+      const angleCtx = `ÁNGULO: ${a?.titulo || ''}\nDESCRIPCIÓN: ${a?.descripcion || ''}\n\nMAPA:\n${mapaCtx}`;
+      const r = await callClaude(
+        `${angleCtx}\n\nGenera OTRA propuesta distinta de guión de reel para el mismo ángulo, con un enfoque diferente al anterior. Devolvé 4 secciones claramente etiquetadas:\n\n1. HOOKS — 4 opciones (5-10 palabras).\n2. DESARROLLO — 1 bloque (120-180 palabras).\n3. CIERRES EDITORIALES — 3 opciones (1-2 frases que rematan el argumento sin pedir acción).\n4. CTAs DE ACCIÓN — 3 opciones (1-2 frases que invitan a la acción).\n\nJSON estricto: { "hooks": ["h1","h2","h3","h4"], "desarrollo": "cuerpo", "cierres": ["c1","c2","c3"], "ctas": ["cta1","cta2","cta3"] }`,
+        sysReels
+      );
+      result = {
+        propuesta: {
+          hooks: (r.hooks || []).map(h => ({ texto: h })),
+          desarrollo: r.desarrollo || '',
+          cierres: (r.cierres || []).map(c => ({ texto: c })),
+          ctas: (r.ctas || []).map(c => ({ texto: c })),
+        },
+      };
+      // Do not persist here — client merges and calls PUT /api/episodes with the updated repurpose_content.
+    }
+
+    // ═══ PHASE: INTROS_ONLY ═══
+    // Selected angles → just intros (same protocol as legacy repurpose intros)
+    else if (phase === 'intros_only') {
+      const anglesCtx = (selected_angles || []).map((a, i) => `${i + 1}. ${a.titulo}: ${a.descripcion}`).join('\n');
+      const mapaCtx = mapa ? `TESIS: ${mapa.tesis}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nHISTORIA PERSONAL: ${mapa.historia_personal || 'No disponible'}` : '';
+      const sysIntros = await buildSystem(['adn', 'intros']);
+      const r = await callClaude(
+        `ÁNGULOS SELECCIONADOS:\n${anglesCtx}\n\nMAPA:\n${mapaCtx}\n\nGenera 10 intros leídos para Daniela.\nJSON: { "intros": [{ "titulo": "nombre del intro", "texto": "intro 150-300 palabras listo para leer", "formula": "dato_absurdo|escena_personal|premisa_contrarian|pregunta_provocadora" }] }`,
+        sysIntros
+      );
+      result = { intros: r.intros || [] };
+      const { data: current } = await db.from('episodes').select('repurpose_content').eq('id', episode_id).single();
+      const merged = { ...(current?.repurpose_content || {}), intros: r.intros || [] };
+      updates.repurpose_content = merged;
     }
 
     // Save to Supabase

@@ -2,6 +2,7 @@
 import { Mic, Mail, Lightbulb, Brain, Plus, ArrowRight, Calendar, AlertCircle } from "lucide-react";
 
 const O = "#EA580C", OL = "#FFF7ED", MU = "#78716A";
+const SHOW_PARRILLA = false;
 const FIVE_DAYS_MS = 5 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
@@ -111,12 +112,12 @@ export default function InicioView({
               >
                 {latestEp.name}
               </p>
-              {nextEp ? (
+              {SHOW_PARRILLA && nextEp ? (
                 <p className="text-xs text-stone-500">
                   Próximo: <span className="font-medium text-stone-700">{nextEp.title}</span>
                   <span className="text-stone-400"> · {relativeDate(nextEp.scheduled_date)}</span>
                 </p>
-              ) : showEpHint ? (
+              ) : SHOW_PARRILLA && showEpHint ? (
                 <p className="text-xs text-stone-500">
                   Próximo: <span className="text-stone-400">pendiente</span>
                   <span
@@ -126,11 +127,7 @@ export default function InicioView({
                     <Calendar size={10} /> Programá uno desde la Parrilla →
                   </span>
                 </p>
-              ) : (
-                <p className="text-xs text-stone-500">
-                  Próximo: <span className="text-stone-400 italic">pendiente</span>
-                </p>
-              )}
+              ) : null}
             </>
           ) : (
             <>
@@ -157,12 +154,12 @@ export default function InicioView({
               >
                 {latestNl.name}
               </p>
-              {nextNl ? (
+              {SHOW_PARRILLA && nextNl ? (
                 <p className="text-xs text-stone-500">
                   Próxima: <span className="font-medium text-stone-700">{nextNl.title}</span>
                   <span className="text-stone-400"> · {relativeDate(nextNl.scheduled_date)}</span>
                 </p>
-              ) : showNlHint ? (
+              ) : SHOW_PARRILLA && showNlHint ? (
                 <p className="text-xs text-stone-500">
                   Próxima: <span className="text-stone-400">pendiente</span>
                   <span
@@ -172,11 +169,7 @@ export default function InicioView({
                     <Calendar size={10} /> Programá una desde la Parrilla →
                   </span>
                 </p>
-              ) : (
-                <p className="text-xs text-stone-500">
-                  Próxima: <span className="text-stone-400 italic">pendiente</span>
-                </p>
-              )}
+              ) : null}
             </>
           ) : (
             <>

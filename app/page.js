@@ -18,6 +18,10 @@ const NewsletterView = dynamic(() => import("@/components/NewsletterView"), { ss
 
 async function generate(body) { return api("/api/generate", { method: "POST", body: JSON.stringify(body) }); }
 
+// ═══ FEATURE FLAGS ═══
+// Parrilla queda oculta en UI (código conservado). Cambiar a true para reactivar.
+const SHOW_PARRILLA = false;
+
 // ═══ UPLOAD MODAL ═══
 function UploadModal({ onClose, onSubmit }) {
   const [name, setName] = useState(""); const [tx, setTx] = useState(""); const [fn, setFn] = useState(""); const fr = useRef(null);
@@ -210,105 +214,555 @@ function ContenidoTab({ ep, phase, onUpdate, onLearn, onGenerate, generatingCont
   </div>;
 }
 
-// ═══ TAB: REPURPOSE ═══
-function RepurposeTab({ ep, onUpdate, onLearn }) {
-  const [genRP, setGenRP] = useState(false);
-  const [editM, setEditM] = useState(null);
+// ═══ TAB: REELS (v2) ═══
+// Estructura por ángulo: card con propuestas [{ hooks[], desarrollo, ctas[], selected_hook_idx, selected_cta_idx, guion_final }].
+// La generación arranca al entrar al tab.
+function ReelsTab({ ep, onUpdate, onLearn }) {
   const angulos = ep.ideas || [];
   const sel = ep.selected_ideas || [];
   const selectedAngles = sel.map(i => angulos[i]).filter(Boolean);
   const rp = ep.repurpose_content;
+  const cards = rp?.reels_v2;
 
-  const generateRP = async () => {
+  const [generating, setGenerating] = useState(false);
+  const [variantLoading, setVariantLoading] = useState({}); // { [cardIdx]: bool }
+  const [activePropuesta, setActivePropuesta] = useState({}); // { [cardIdx]: propuestaIdx }
+  const [editM, setEditM] = useState(null);
+  // Prompt inline de motivo de descarte. { type: 'hook'|'cta'|'propuesta', ci, pi, idx?, original_content, proposed_change, motivo }
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const triggered = useRef(false);
+  const promptRef = useRef(null);
+  // Ref al estado más reciente de pendingDelete/cards para evitar cerraduras stale en handlers globales
+  const stateRef = useRef({ pendingDelete: null, cards: null });
+
+  const doGenerate = useCallback(async () => {
     if (selectedAngles.length === 0) return;
-    setGenRP(true);
-    const res = await generate({ episode_id: ep.id, phase: "repurpose", selected_angles: selectedAngles, mapa: ep.mapa });
-    if (res.result) onUpdate({ repurpose_content: res.result });
-    setGenRP(false);
+    setGenerating(true);
+    const res = await generate({ episode_id: ep.id, phase: "reels_v2", selected_angles: selectedAngles, mapa: ep.mapa });
+    if (res.result?.cards) {
+      onUpdate({ repurpose_content: { ...(rp || {}), reels_v2: res.result.cards } });
+    }
+    setGenerating(false);
+  }, [ep, rp, selectedAngles, onUpdate]);
+
+  // Auto-generar al entrar al tab si aún no se generó
+  useEffect(() => {
+    if (triggered.current) return;
+    if (cards || generating) return;
+    if (selectedAngles.length === 0) return;
+    triggered.current = true;
+    doGenerate();
+  }, [cards, generating, selectedAngles, doGenerate]);
+
+  const patchCards = (nextCards) => onUpdate({ repurpose_content: { ...(rp || {}), reels_v2: nextCards } });
+
+  const patchPropuesta = (ci, pi, patch) => {
+    const next = cards.map((c, i) => {
+      if (i !== ci) return c;
+      const propuestas = c.propuestas.map((p, j) => j === pi ? { ...p, ...patch } : p);
+      return { ...c, propuestas };
+    });
+    patchCards(next);
+  };
+
+  const setSelectedHook = (ci, pi, idx) => patchPropuesta(ci, pi, { selected_hook_idx: idx });
+  const setSelectedCierre = (ci, pi, idx) => patchPropuesta(ci, pi, { selected_cierre_idx: idx });
+  const setSelectedCta = (ci, pi, idx) => patchPropuesta(ci, pi, { selected_cta_idx: idx });
+
+  const removeHookNow = (nextCards, ci, pi, idx) => {
+    const target = nextCards[ci].propuestas[pi];
+    const hooks = target.hooks.filter((_, k) => k !== idx);
+    let selHook = target.selected_hook_idx;
+    if (selHook === idx) selHook = null;
+    else if (typeof selHook === 'number' && selHook > idx) selHook -= 1;
+    return nextCards.map((c, i) => i !== ci ? c : {
+      ...c,
+      propuestas: c.propuestas.map((p, j) => j !== pi ? p : { ...p, hooks, selected_hook_idx: selHook }),
+    });
+  };
+  const removeCtaNow = (nextCards, ci, pi, idx) => {
+    const target = nextCards[ci].propuestas[pi];
+    const ctas = target.ctas.filter((_, k) => k !== idx);
+    let selCta = target.selected_cta_idx;
+    if (selCta === idx) selCta = null;
+    else if (typeof selCta === 'number' && selCta > idx) selCta -= 1;
+    return nextCards.map((c, i) => i !== ci ? c : {
+      ...c,
+      propuestas: c.propuestas.map((p, j) => j !== pi ? p : { ...p, ctas, selected_cta_idx: selCta }),
+    });
+  };
+  const removeCierreNow = (nextCards, ci, pi, idx) => {
+    const target = nextCards[ci].propuestas[pi];
+    const cierres = (target.cierres || []).filter((_, k) => k !== idx);
+    let selC = target.selected_cierre_idx;
+    if (selC === idx) selC = null;
+    else if (typeof selC === 'number' && selC > idx) selC -= 1;
+    return nextCards.map((c, i) => i !== ci ? c : {
+      ...c,
+      propuestas: c.propuestas.map((p, j) => j !== pi ? p : { ...p, cierres, selected_cierre_idx: selC }),
+    });
+  };
+  const removePropuestaNow = (nextCards, ci, pi) => {
+    return nextCards.map((c, i) => i !== ci ? c : {
+      ...c,
+      propuestas: c.propuestas.filter((_, j) => j !== pi),
+    });
+  };
+
+  const commitDelete = useCallback((motivo) => {
+    const pd = stateRef.current.pendingDelete;
+    const current = stateRef.current.cards;
+    if (!pd || !current) return;
+    onLearn('reels', motivo || '', {
+      allowEmpty: true,
+      original_content: pd.original_content || '',
+      proposed_change: pd.proposed_change || null,
+      target_protocol_name: 'reels',
+    });
+    let next = current;
+    if (pd.type === 'hook') next = removeHookNow(next, pd.ci, pd.pi, pd.idx);
+    else if (pd.type === 'cta') next = removeCtaNow(next, pd.ci, pd.pi, pd.idx);
+    else if (pd.type === 'cierre') next = removeCierreNow(next, pd.ci, pd.pi, pd.idx);
+    else if (pd.type === 'propuesta') {
+      next = removePropuestaNow(next, pd.ci, pd.pi);
+      // Ajustar propuesta activa si la eliminada era la activa o venía después
+      setActivePropuesta(prev => {
+        const cur = prev[pd.ci] ?? 0;
+        let nn = cur;
+        if (cur === pd.pi) nn = Math.max(0, cur - 1);
+        else if (cur > pd.pi) nn = cur - 1;
+        return { ...prev, [pd.ci]: nn };
+      });
+    }
+    patchCards(next);
+    setPendingDelete(null);
+  }, [onLearn, onUpdate, rp]);
+
+  // Mantener stateRef sincronizado con el estado más reciente
+  useEffect(() => { stateRef.current = { pendingDelete, cards }; }, [pendingDelete, cards]);
+
+  // Click fuera del prompt inline → commit con motivo vacío
+  useEffect(() => {
+    if (!pendingDelete) return;
+    const handler = (e) => {
+      if (promptRef.current && !promptRef.current.contains(e.target)) {
+        commitDelete('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [pendingDelete, commitDelete]);
+
+  const openDeleteHook = (ci, pi, hi) => {
+    if (pendingDelete) commitDelete(pendingDelete.motivo || '');
+    const h = cards[ci].propuestas[pi].hooks[hi];
+    const tipo = h?.tipo ? ` (${h.tipo})` : '';
+    setPendingDelete({
+      type: 'hook', ci, pi, idx: hi,
+      original_content: h?.texto || '',
+      proposed_change: `Hook descartado${tipo}`,
+      motivo: '',
+    });
+  };
+  const openDeleteCta = (ci, pi, cti) => {
+    if (pendingDelete) commitDelete(pendingDelete.motivo || '');
+    const c = cards[ci].propuestas[pi].ctas[cti];
+    const tipo = c?.tipo ? ` (${c.tipo})` : '';
+    setPendingDelete({
+      type: 'cta', ci, pi, idx: cti,
+      original_content: c?.texto || '',
+      proposed_change: `CTA descartado${tipo}`,
+      motivo: '',
+    });
+  };
+  const openDeleteCierre = (ci, pi, cei) => {
+    if (pendingDelete) commitDelete(pendingDelete.motivo || '');
+    const c = (cards[ci].propuestas[pi].cierres || [])[cei];
+    setPendingDelete({
+      type: 'cierre', ci, pi, idx: cei,
+      original_content: c?.texto || '',
+      proposed_change: 'Cierre editorial descartado',
+      motivo: '',
+    });
+  };
+  const openDeletePropuesta = (ci, pi) => {
+    if (pendingDelete) commitDelete(pendingDelete.motivo || '');
+    const prop = cards[ci].propuestas[pi];
+    const summary = [
+      (prop.hooks || []).map(h => `Hook: ${h.texto}`).join('\n'),
+      prop.desarrollo ? `Desarrollo: ${prop.desarrollo}` : '',
+      (prop.cierres || []).map(c => `Cierre: ${c.texto}`).join('\n'),
+      (prop.ctas || []).map(c => `CTA: ${c.texto}`).join('\n'),
+    ].filter(Boolean).join('\n\n');
+    setPendingDelete({
+      type: 'propuesta', ci, pi,
+      original_content: summary,
+      proposed_change: 'Propuesta completa descartada',
+      motivo: '',
+    });
+  };
+
+  const armarGuion = (ci, pi) => {
+    const prop = cards[ci].propuestas[pi];
+    const hook = prop.hooks[prop.selected_hook_idx]?.texto || '';
+    const cierre = (prop.cierres || [])[prop.selected_cierre_idx]?.texto || '';
+    const cta = prop.ctas[prop.selected_cta_idx]?.texto || '';
+    const generado = [hook, prop.desarrollo || '', cierre, cta].filter(Boolean).join('\n\n');
+    const guion_final = prop.guion_final || {};
+    patchPropuesta(ci, pi, {
+      guion_final: {
+        generado,
+        libre: guion_final.libre ?? generado,
+        cerrado: guion_final.cerrado ?? false,
+      },
+    });
+  };
+
+  const generarVariante = async (ci) => {
+    setVariantLoading(prev => ({ ...prev, [ci]: true }));
+    const angulo = { titulo: cards[ci].angulo_titulo, descripcion: cards[ci].angulo_descripcion };
+    const res = await generate({ episode_id: ep.id, phase: "reels_variant", angulo, mapa: ep.mapa });
+    if (res.result?.propuesta) {
+      const next = cards.map((c, i) => i === ci ? { ...c, propuestas: [...c.propuestas, res.result.propuesta] } : c);
+      patchCards(next);
+      setActivePropuesta(prev => ({ ...prev, [ci]: next[ci].propuestas.length - 1 }));
+    }
+    setVariantLoading(prev => ({ ...prev, [ci]: false }));
+  };
+
+  const applyDesarrolloFb = async (ci, pi, fb) => {
+    const prop = cards[ci].propuestas[pi];
+    const res = await generate({ prompt: `Desarrollo actual del guión de reel:\n"${prop.desarrollo}"\n\nFeedback: ${fb}\n\nRegenera aplicando el feedback, manteniendo 120-180 palabras.\nJSON: { "desarrollo": "cuerpo regenerado" }` });
+    if (res.result?.desarrollo) patchPropuesta(ci, pi, { desarrollo: res.result.desarrollo });
+    onLearn("reels", fb);
+  };
+
+  const applyHookFb = async (ci, pi, hi, fb) => {
+    const prop = cards[ci].propuestas[pi];
+    const hook = prop.hooks[hi];
+    const res = await generate({ prompt: `Hook actual de guión de reel:\n"${hook.texto}"\n\nFeedback: ${fb}\n\nRegenera aplicando el feedback. Mantener el hook corto (5-15 palabras).\nJSON: { "texto": "hook regenerado" }` });
+    if (res.result?.texto) {
+      const hooks = prop.hooks.map((h, k) => k === hi ? { ...h, texto: res.result.texto } : h);
+      patchPropuesta(ci, pi, { hooks });
+    }
+    onLearn("reels", fb);
+  };
+
+  const applyCtaFb = async (ci, pi, cti, fb) => {
+    const prop = cards[ci].propuestas[pi];
+    const cta = prop.ctas[cti];
+    const res = await generate({ prompt: `Call to action actual de guión de reel:\n"${cta.texto}"\n\nFeedback: ${fb}\n\nRegenera aplicando el feedback. Mantener 1-2 frases.\nJSON: { "texto": "CTA regenerado" }` });
+    if (res.result?.texto) {
+      const ctas = prop.ctas.map((c, k) => k === cti ? { ...c, texto: res.result.texto } : c);
+      patchPropuesta(ci, pi, { ctas });
+    }
+    onLearn("reels", fb);
+  };
+
+  const applyCierreFb = async (ci, pi, cei, fb) => {
+    const prop = cards[ci].propuestas[pi];
+    const cierre = (prop.cierres || [])[cei];
+    const res = await generate({ prompt: `Cierre editorial actual de guión de reel:\n"${cierre.texto}"\n\nFeedback: ${fb}\n\nRegenera aplicando el feedback. Mantener 1-2 frases que rematan el argumento sin pedir acción.\nJSON: { "texto": "cierre regenerado" }` });
+    if (res.result?.texto) {
+      const cierres = (prop.cierres || []).map((c, k) => k === cei ? { ...c, texto: res.result.texto } : c);
+      patchPropuesta(ci, pi, { cierres });
+    }
+    onLearn("reels", fb);
+  };
+
+  if (sel.length === 0) return <div className="rounded-xl border border-stone-200 bg-white p-8 text-center"><p className="text-sm text-stone-500">Primero selecciona ángulos en el tab Episodio</p></div>;
+
+  if (generating && !cards) return <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎥 Guiones de reel</h3>
+    <p className="text-xs text-orange-500 mb-3 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Generando hooks, desarrollo y CTAs por cada ángulo...</p>
+    <Skel n={6} />
+  </div>;
+
+  if (!cards) return <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <h3 className="font-semibold text-[15px] text-stone-800 mb-2">🎥 Generar reels</h3>
+    <p className="text-xs text-stone-400 mb-4">{selectedAngles.length} ángulos seleccionados</p>
+    <button onClick={doGenerate} className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90" style={{ background: O }}>
+      <Sparkles size={16} /> Generar reels
+    </button>
+  </div>;
+
+  return <div className="space-y-4">
+    {cards.map((card, ci) => {
+      const pIdx = activePropuesta[ci] ?? 0;
+      const prop = card.propuestas[pIdx] || card.propuestas[0];
+      const hookOk = typeof prop.selected_hook_idx === 'number' && prop.hooks[prop.selected_hook_idx];
+      const cierresList = prop.cierres || [];
+      const cierreOk = typeof prop.selected_cierre_idx === 'number' && cierresList[prop.selected_cierre_idx];
+      const ctaOk = typeof prop.selected_cta_idx === 'number' && prop.ctas[prop.selected_cta_idx];
+      const canArmar = hookOk && cierreOk && ctaOk;
+      const gf = prop.guion_final;
+
+      return <div key={ci} className="rounded-xl border border-stone-200 bg-white p-5">
+        <div className="flex items-start gap-2 mb-3 flex-wrap">
+          <span className="text-xs font-bold text-stone-400">#{ci + 1}</span>
+          <p className="text-sm font-semibold text-stone-800 flex-1 min-w-0">{card.angulo_titulo}</p>
+          {card.angulo_tipo && <Badge label={card.angulo_tipo} />}
+        </div>
+
+        {/* Tabs de propuestas dentro de la card */}
+        {card.propuestas.length > 1 && (
+          <div className="flex items-center gap-1 mb-4 border-b border-stone-200">
+            {card.propuestas.map((_, pi) => {
+              const active = pIdx === pi;
+              return <div key={pi} className="relative group inline-flex items-center">
+                <button onClick={() => setActivePropuesta(prev => ({ ...prev, [ci]: pi }))}
+                  className="pl-3 pr-6 py-2 text-xs font-medium border-b-2"
+                  style={{ borderColor: active ? O : "transparent", color: active ? O : MU }}>
+                  Propuesta {pi + 1}
+                </button>
+                <button onClick={() => openDeletePropuesta(ci, pi)}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-stone-100 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Eliminar propuesta">
+                  <X size={11} color={MU} />
+                </button>
+              </div>;
+            })}
+          </div>
+        )}
+
+        {/* Prompt de motivo cuando se descarta la propuesta actual */}
+        {pendingDelete?.type === 'propuesta' && pendingDelete.ci === ci && pendingDelete.pi === pIdx && (
+          <DeleteReasonPrompt refEl={promptRef} value={pendingDelete.motivo}
+            onChange={m => setPendingDelete(prev => prev ? { ...prev, motivo: m } : prev)}
+            onSkip={() => commitDelete('')}
+            onConfirm={() => commitDelete(pendingDelete.motivo)}
+            label="¿Por qué descartás esta propuesta? (opcional)" />
+        )}
+
+        {/* HOOKS */}
+        <div className="mb-4">
+          <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-2">Hooks</p>
+          <div className="space-y-1.5">{prop.hooks.map((h, hi) => {
+            const selected = prop.selected_hook_idx === hi;
+            const pending = pendingDelete?.type === 'hook' && pendingDelete.ci === ci && pendingDelete.pi === pIdx && pendingDelete.idx === hi;
+            return <div key={hi}>
+              <div className="flex items-start gap-2 p-2.5 rounded-lg border transition-all" style={{ borderColor: selected ? O : "#E7E5E4", background: selected ? OL : "white" }}>
+                <button onClick={() => setSelectedHook(ci, pIdx, hi)} className="mt-0.5 shrink-0">
+                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center" style={{ borderColor: selected ? O : "#D6D3D1", background: selected ? O : "white" }}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </button>
+                <p className="text-sm text-stone-700 flex-1 min-w-0">{h.texto}</p>
+                <AIEditBtn onClick={() => setEditM({ title: `Hook`, content: h.texto, ci, pi: pIdx, idx: hi, kind: 'hook' })} />
+                <button onClick={() => openDeleteHook(ci, pIdx, hi)} className="p-1 rounded hover:bg-stone-100 shrink-0" title="Eliminar hook"><X size={12} color={MU} /></button>
+              </div>
+              {pending && (
+                <DeleteReasonPrompt refEl={promptRef} value={pendingDelete.motivo}
+                  onChange={m => setPendingDelete(prev => prev ? { ...prev, motivo: m } : prev)}
+                  onSkip={() => commitDelete('')}
+                  onConfirm={() => commitDelete(pendingDelete.motivo)}
+                  label="¿Por qué lo descartás? (opcional)" />
+              )}
+            </div>;
+          })}</div>
+        </div>
+
+        {/* DESARROLLO */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Desarrollo</p>
+            <AIEditBtn onClick={() => setEditM({ title: `Desarrollo — ${card.angulo_titulo}`, content: prop.desarrollo, ci, pi: pIdx })} />
+          </div>
+          <div className="rounded-lg border border-stone-200 p-3">
+            <EditableText text={prop.desarrollo} onSave={v => patchPropuesta(ci, pIdx, { desarrollo: v })} multiline />
+          </div>
+        </div>
+
+        {/* CIERRE EDITORIAL */}
+        <div className="mb-4">
+          <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-2">Cierre editorial</p>
+          <div className="space-y-1.5">{cierresList.map((c, cei) => {
+            const selected = prop.selected_cierre_idx === cei;
+            const pending = pendingDelete?.type === 'cierre' && pendingDelete.ci === ci && pendingDelete.pi === pIdx && pendingDelete.idx === cei;
+            return <div key={cei}>
+              <div className="flex items-start gap-2 p-2.5 rounded-lg border transition-all" style={{ borderColor: selected ? O : "#E7E5E4", background: selected ? OL : "white" }}>
+                <button onClick={() => setSelectedCierre(ci, pIdx, cei)} className="mt-0.5 shrink-0">
+                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center" style={{ borderColor: selected ? O : "#D6D3D1", background: selected ? O : "white" }}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </button>
+                <p className="text-sm text-stone-700 flex-1 min-w-0">{c.texto}</p>
+                <AIEditBtn onClick={() => setEditM({ title: `Cierre editorial`, content: c.texto, ci, pi: pIdx, idx: cei, kind: 'cierre' })} />
+                <button onClick={() => openDeleteCierre(ci, pIdx, cei)} className="p-1 rounded hover:bg-stone-100 shrink-0" title="Eliminar cierre"><X size={12} color={MU} /></button>
+              </div>
+              {pending && (
+                <DeleteReasonPrompt refEl={promptRef} value={pendingDelete.motivo}
+                  onChange={m => setPendingDelete(prev => prev ? { ...prev, motivo: m } : prev)}
+                  onSkip={() => commitDelete('')}
+                  onConfirm={() => commitDelete(pendingDelete.motivo)}
+                  label="¿Por qué lo descartás? (opcional)" />
+              )}
+            </div>;
+          })}</div>
+        </div>
+
+        {/* CTA DE ACCIÓN */}
+        <div className="mb-4">
+          <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-2">CTA de acción</p>
+          <div className="space-y-1.5">{prop.ctas.map((c, cti) => {
+            const selected = prop.selected_cta_idx === cti;
+            const pending = pendingDelete?.type === 'cta' && pendingDelete.ci === ci && pendingDelete.pi === pIdx && pendingDelete.idx === cti;
+            return <div key={cti}>
+              <div className="flex items-start gap-2 p-2.5 rounded-lg border transition-all" style={{ borderColor: selected ? O : "#E7E5E4", background: selected ? OL : "white" }}>
+                <button onClick={() => setSelectedCta(ci, pIdx, cti)} className="mt-0.5 shrink-0">
+                  <div className="w-4 h-4 rounded-full border-2 flex items-center justify-center" style={{ borderColor: selected ? O : "#D6D3D1", background: selected ? O : "white" }}>
+                    {selected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </button>
+                <p className="text-sm text-stone-700 flex-1 min-w-0">{c.texto}</p>
+                <AIEditBtn onClick={() => setEditM({ title: `CTA de acción`, content: c.texto, ci, pi: pIdx, idx: cti, kind: 'cta' })} />
+                <button onClick={() => openDeleteCta(ci, pIdx, cti)} className="p-1 rounded hover:bg-stone-100 shrink-0" title="Eliminar CTA"><X size={12} color={MU} /></button>
+              </div>
+              {pending && (
+                <DeleteReasonPrompt refEl={promptRef} value={pendingDelete.motivo}
+                  onChange={m => setPendingDelete(prev => prev ? { ...prev, motivo: m } : prev)}
+                  onSkip={() => commitDelete('')}
+                  onConfirm={() => commitDelete(pendingDelete.motivo)}
+                  label="¿Por qué lo descartás? (opcional)" />
+              )}
+            </div>;
+          })}</div>
+        </div>
+
+        {/* Acciones */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => armarGuion(ci, pIdx)} disabled={!canArmar}
+            className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90"
+            style={{ background: canArmar ? O : "#D6D3D1", cursor: canArmar ? "pointer" : "not-allowed" }}>
+            <Sparkles size={14} /> Armar guión
+          </button>
+          <button onClick={() => generarVariante(ci)} disabled={variantLoading[ci]}
+            className="px-3 py-2.5 rounded-xl text-sm font-medium border border-stone-200 hover:bg-orange-50 flex items-center gap-1.5"
+            style={{ color: O, borderColor: OB }}>
+            {variantLoading[ci] ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+            Generar variante
+          </button>
+        </div>
+
+        {/* GUIÓN FINAL */}
+        {gf && (
+          <div className="mt-5 rounded-xl border p-4" style={{ borderColor: OB, background: OL }}>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[11px] font-semibold text-stone-700 uppercase tracking-widest">Guión final</p>
+              {gf.cerrado && <span className="text-[11px] font-medium px-2 py-0.5 rounded-full" style={{ background: GL, color: GR }}>✓ Cerrado</span>}
+            </div>
+            <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Sugerencia (hook + desarrollo + cierre + CTA)</p>
+            <p className="text-sm text-stone-700 whitespace-pre-wrap mb-4">{gf.generado}</p>
+            <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Versión final de copy</p>
+            <textarea value={gf.libre || ''} onChange={e => patchPropuesta(ci, pIdx, { guion_final: { ...gf, libre: e.target.value } })}
+              className="w-full text-sm border border-stone-200 rounded-lg p-3 focus:outline-none focus:border-orange-300 min-h-[120px] bg-white" />
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <CopyBtn text={gf.libre || gf.generado} />
+              {!gf.cerrado ? (
+                <button onClick={() => patchPropuesta(ci, pIdx, { guion_final: { ...gf, cerrado: true } })}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-1.5"
+                  style={{ background: GR }}>
+                  <CheckCircle2 size={14} /> Marcar como cerrado
+                </button>
+              ) : (
+                <button onClick={() => patchPropuesta(ci, pIdx, { guion_final: { ...gf, cerrado: false } })}
+                  className="px-4 py-2 rounded-xl text-sm font-medium text-stone-500 hover:bg-stone-100">
+                  Reabrir
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>;
+    })}
+
+    <button onClick={() => { triggered.current = false; onUpdate({ repurpose_content: { ...(rp || {}), reels_v2: null } }); }} className="text-sm text-stone-400 hover:text-stone-600">← Regenerar reels</button>
+
+    {editM && <EditModal title={editM.title} content={editM.content}
+      onClose={() => setEditM(null)}
+      onApply={async fb => {
+        if (editM.kind === 'hook') await applyHookFb(editM.ci, editM.pi, editM.idx, fb);
+        else if (editM.kind === 'cta') await applyCtaFb(editM.ci, editM.pi, editM.idx, fb);
+        else if (editM.kind === 'cierre') await applyCierreFb(editM.ci, editM.pi, editM.idx, fb);
+        else await applyDesarrolloFb(editM.ci, editM.pi, fb);
+        setEditM(null);
+      }} />}
+  </div>;
+}
+
+// Prompt inline para capturar motivo de descarte. No bloquea: click fuera commit con motivo vacío.
+function DeleteReasonPrompt({ refEl, value, onChange, onSkip, onConfirm, label }) {
+  return (
+    <div ref={refEl} className="mt-1.5 mb-1.5 ml-6 rounded-lg border border-stone-200 bg-stone-50 p-2.5">
+      <p className="text-[11px] text-stone-500 mb-1.5">{label}</p>
+      <div className="flex items-center gap-2">
+        <input
+          autoFocus
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') onConfirm(); }}
+          placeholder="Motivo (opcional)"
+          className="flex-1 text-xs px-2.5 py-1.5 rounded-md border border-stone-200 bg-white focus:outline-none focus:border-orange-300"
+        />
+        <button onClick={onSkip} className="text-xs px-2.5 py-1.5 rounded-md text-stone-500 hover:bg-stone-100">Omitir</button>
+        <button onClick={onConfirm} className="text-xs px-3 py-1.5 rounded-md text-white hover:opacity-90" style={{ background: O }}>Confirmar</button>
+      </div>
+    </div>
+  );
+}
+
+// ═══ TAB: INTROS ═══
+function IntrosTab({ ep, onUpdate, onLearn }) {
+  const angulos = ep.ideas || [];
+  const sel = ep.selected_ideas || [];
+  const selectedAngles = sel.map(i => angulos[i]).filter(Boolean);
+  const rp = ep.repurpose_content;
+  const intros = rp?.intros;
+
+  const [generating, setGenerating] = useState(false);
+  const [editM, setEditM] = useState(null);
+
+  const doGenerate = async () => {
+    if (selectedAngles.length === 0) return;
+    setGenerating(true);
+    const res = await generate({ episode_id: ep.id, phase: "intros_only", selected_angles: selectedAngles, mapa: ep.mapa });
+    if (res.result?.intros) onUpdate({ repurpose_content: { ...(rp || {}), intros: res.result.intros } });
+    setGenerating(false);
   };
 
   const applyIntroFb = async (idx, fb) => {
-    const intro = rp.intros[idx];
+    const intro = intros[idx];
     const res = await generate({ prompt: `Intro actual:\n"${intro.texto}"\n\nFeedback: ${fb}\n\nRegenera aplicando feedback.\nJSON: { "texto": "intro regenerado", "titulo": "${intro.titulo}", "formula": "${intro.formula}" }` });
     if (res.result?.texto) {
-      const n = [...rp.intros]; n[idx] = res.result;
+      const n = [...intros]; n[idx] = { ...n[idx], ...res.result };
       onUpdate({ repurpose_content: { ...rp, intros: n } });
     }
     onLearn("intros", fb);
   };
 
-  // Piezas para enviar a la Parrilla (todos los reels + todos los LinkedIn — los intros no van)
-  const parrillaPieces = [
-    ...(rp?.reels || []).map((reel, i) => ({
-      key: `reel-${i}`,
-      label_prefix: `🎬 Reel — `,
-      title: reel.titulo || `Reel #${i + 1}`,
-      content: reel.guion || "",
-      content_type: "reel",
-      preview: reel.guion,
-    })),
-    ...(rp?.linkedin || []).map((post, i) => ({
-      key: `linkedin-${i}`,
-      label_prefix: `💼 LinkedIn — `,
-      title: (post.hook || post.cuerpo || "").split("\n")[0].slice(0, 80) || `LinkedIn #${i + 1}`,
-      content: post.cuerpo || "",
-      content_type: "linkedin",
-      preview: post.cuerpo,
-    })),
-  ];
+  if (sel.length === 0) return <div className="rounded-xl border border-stone-200 bg-white p-8 text-center"><p className="text-sm text-stone-500">Primero selecciona ángulos en el tab Episodio</p></div>;
 
-  if (sel.length === 0) return <div className="rounded-xl border border-stone-200 bg-white p-8 text-center"><p className="text-sm text-stone-500">Primero selecciona ángulos en la tab de Contenido</p></div>;
+  if (!intros) return <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+    <h3 className="font-semibold text-[15px] text-stone-800 mb-2">🎤 Intros leídos</h3>
+    <p className="text-xs text-stone-400 mb-5">{selectedAngles.length} ángulos seleccionados</p>
+    <button onClick={doGenerate} disabled={generating} className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>
+      {generating ? <><Loader2 size={14} className="animate-spin" /> Generando intros...</> : <><Sparkles size={14} /> Generar intros</>}
+    </button>
+  </div>;
 
-  return <div>
-    {rp && parrillaPieces.length > 0 && (
-      <div className="mb-4 flex justify-end">
-        <SendToParrillaBtn pieces={parrillaPieces} source={{ id: ep.id, name: ep.name, origin_type: 'episode', label_prefix: 'Ep. ' }} />
+  return <div className="rounded-xl border border-stone-200 bg-white p-5">
+    <div className="flex items-center justify-between mb-3">
+      <h3 className="font-semibold text-[15px] text-stone-800">🎤 Intros leídos</h3>
+      <button onClick={() => onUpdate({ repurpose_content: { ...rp, intros: null } })} className="text-xs text-stone-400 hover:text-stone-600">← Regenerar</button>
+    </div>
+    <div className="space-y-3">{intros.map((intro, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
+      <div className="flex items-center justify-between mb-2 gap-2">
+        <div className="flex items-center gap-2 flex-wrap min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{intro.titulo}</p><Badge label={intro.formula} /></div>
+        <div className="flex items-center gap-1 shrink-0"><AIEditBtn onClick={() => setEditM({ title: `Intro #${i + 1}`, content: intro.texto, idx: i })} /><CopyBtn text={intro.texto} /></div>
       </div>
-    )}
-    {!rp && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
-      <h3 className="font-semibold text-[15px] text-stone-800 mb-2">🔄 Generar repurpose</h3>
-      <p className="text-xs text-stone-400 mb-4">{selectedAngles.length} ángulos seleccionados → intros + reels + LinkedIn</p>
-      <div className="space-y-1.5 mb-4">{selectedAngles.map((a, i) => <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-50 border border-orange-100"><Badge label={a.tipo} /><p className="text-xs text-stone-700">{a.titulo}</p></div>)}</div>
-      <button onClick={generateRP} disabled={genRP} className="w-full py-3 rounded-xl text-sm font-semibold text-white flex items-center justify-center gap-2 hover:opacity-90" style={{ background: O }}>
-        {genRP ? <><Loader2 size={16} className="animate-spin" /> Generando intros + reels + LinkedIn...</> : <><Sparkles size={16} /> Generar repurpose</>}
-      </button>
-    </div>}
-
-    {/* INTROS */}
-    {rp?.intros && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
-      <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎤 Intros leídos</h3>
-      <div className="space-y-3">{rp.intros.map((intro, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2 gap-2">
-          <div className="flex items-center gap-2 flex-wrap min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{intro.titulo}</p><Badge label={intro.formula} /></div>
-          <div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: intro.titulo || `Intro #${i + 1}`, description: intro.formula, notes: intro.texto, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} /><AIEditBtn onClick={() => setEditM({ title: `Intro #${i + 1}`, content: intro.texto, idx: i, type: "intro" })} /><CopyBtn text={intro.texto} /></div>
-        </div>
-        <EditableText text={intro.texto} onSave={v => { const n = [...rp.intros]; n[i] = { ...n[i], texto: v }; onUpdate({ repurpose_content: { ...rp, intros: n } }); }} multiline />
-      </div>)}</div>
-    </div>}
-
-    {/* REELS */}
-    {rp?.reels && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
-      <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎥 Guiones de reel</h3>
-      <div className="space-y-3">{rp.reels.map((reel, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2 gap-2">
-          <div className="flex items-center gap-2 flex-wrap min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><p className="text-sm font-medium text-stone-800">{reel.titulo}</p><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">{reel.tipo_gancho}</span></div>
-          <div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: reel.titulo || `Reel #${i + 1}`, description: reel.tipo_gancho, notes: reel.guion, formats: ['reel'], category: 'contenido', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name, generated_content: { reel } }} /><CopyBtn text={reel.guion} /></div>
-        </div>
-        <EditableText text={reel.guion} onSave={v => { const n = [...rp.reels]; n[i] = { ...n[i], guion: v }; onUpdate({ repurpose_content: { ...rp, reels: n } }); }} multiline />
-      </div>)}</div>
-    </div>}
-
-    {/* LINKEDIN */}
-    {rp?.linkedin && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
-      <h3 className="font-semibold text-[15px] text-stone-800 mb-3">📝 Posts de LinkedIn</h3>
-      <div className="space-y-3">{rp.linkedin.map((post, i) => <div key={i} className="rounded-xl border border-stone-200 p-4">
-        <div className="flex items-center justify-between mb-2 gap-2"><div className="flex items-center gap-2 min-w-0"><span className="text-xs font-bold text-stone-400">#{i + 1}</span><span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">{post.patron_hook}</span></div><div className="flex items-center gap-1 shrink-0"><BankBtn payload={{ title: (post.hook || '').split('\n')[0].slice(0, 80) || `LinkedIn #${i + 1}`, description: post.patron_hook, notes: post.cuerpo, formats: ['linkedin'], category: 'contenido', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name, generated_content: { linkedin: post } }} /><CopyBtn text={post.cuerpo} /></div></div>
-        <EditableText text={post.cuerpo} onSave={v => { const n = [...rp.linkedin]; n[i] = { ...n[i], cuerpo: v }; onUpdate({ repurpose_content: { ...rp, linkedin: n } }); }} multiline />
-      </div>)}</div>
-    </div>}
-
-    {rp && <button onClick={() => onUpdate({ repurpose_content: null })} className="text-sm text-stone-400 hover:text-stone-600 mb-4">← Regenerar repurpose</button>}
-    {editM?.type === "intro" && <EditModal title={editM.title} content={editM.content} onClose={() => setEditM(null)} onApply={async fb => { await applyIntroFb(editM.idx, fb); setEditM(null); }} />}
+      <EditableText text={intro.texto} onSave={v => { const n = [...intros]; n[i] = { ...n[i], texto: v }; onUpdate({ repurpose_content: { ...rp, intros: n } }); }} multiline />
+    </div>)}</div>
+    {editM && <EditModal title={editM.title} content={editM.content} onClose={() => setEditM(null)} onApply={async fb => { await applyIntroFb(editM.idx, fb); setEditM(null); }} />}
   </div>;
 }
 
@@ -351,15 +805,7 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
         <SendToParrillaBtn pieces={parrillaPieces} source={{ id: ep.id, name: ep.name, origin_type: 'episode', label_prefix: 'Ep. ' }} />
       </div>
     )}
-    {/* VOZ EN OFF */}
-    {vozEnOff.length > 0 && <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
-      <h3 className="font-semibold text-[15px] text-stone-800 mb-3">🎙️ Voz en off — Presentación del invitado</h3>
-      <div className="space-y-2">{vozEnOff.map((v, i) => <div key={i} className="flex items-start gap-3 p-3 rounded-xl border border-stone-200">
-        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 shrink-0 mt-0.5">{v.formula}</span>
-        <EditableText text={v.texto} onSave={val => { const n = [...vozEnOff]; n[i] = { ...n[i], texto: val }; onUpdate({ minado: { ...minado, voz_en_off: n } }); }} multiline className="flex-1" />
-        <CopyBtn text={v.texto} />
-      </div>)}</div>
-    </div>}
+    {/* VOZ EN OFF — oculto en UI (data se conserva en minado.voz_en_off) */}
 
     {/* MOMENTOS */}
     <div className="rounded-xl border border-stone-200 bg-white p-5">
@@ -395,7 +841,7 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
 // ═══ MAIN APP ═══
 export default function Home() {
   const [eps, setEps] = useState([]); const [idx, setIdx] = useState(-1);
-  const [tab, setTab] = useState("contenido"); const [showUp, setShowUp] = useState(false);
+  const [tab, setTab] = useState("episodio"); const [showUp, setShowUp] = useState(false);
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
@@ -457,9 +903,18 @@ export default function Home() {
     }
   }, [idx, ep]);
 
-  const addLearning = useCallback((section, feedback) => {
-    if (!feedback?.trim() || !ep?.id) return;
-    const learning = { episode_id: ep.id, section, feedback, original_content: "", target_protocol_name: section };
+  const addLearning = useCallback((section, feedback, extras = {}) => {
+    if (!ep?.id) return;
+    const allowEmpty = extras.allowEmpty === true;
+    if (!allowEmpty && !feedback?.trim()) return;
+    const learning = {
+      episode_id: ep.id,
+      section,
+      feedback: feedback || "",
+      original_content: extras.original_content || "",
+      proposed_change: extras.proposed_change || null,
+      target_protocol_name: extras.target_protocol_name || section,
+    };
     api("/api/learnings", { method: "POST", body: JSON.stringify(learning) });
     setLearnings(prev => [...prev, { ...learning, status: "draft" }]);
   }, [ep]);
@@ -579,7 +1034,12 @@ export default function Home() {
     api("/api/episodes", { method: "PUT", body: JSON.stringify({ id: ep.id, status: "complete" }) });
   }, [ep]);
 
-  const tabs = [{ key: "contenido", label: "Contenido", icon: "📝" }, { key: "repurpose", label: "Repurpose", icon: "🔄" }, { key: "minado", label: "Minado", icon: "⛏️" }];
+  const tabs = [
+    { key: "episodio", label: "Episodio", icon: "📝" },
+    { key: "reels", label: "Reels", icon: "🎥" },
+    { key: "intros", label: "Intros", icon: "🎤" },
+    { key: "minado", label: "Minado", icon: "⛏️" },
+  ];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
   // ── Acción contextual del botón "+ Nuevo" según la superficie activa
@@ -767,7 +1227,8 @@ export default function Home() {
             <span style={{ color: activeView === "fixture" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Fixture</span>
           </button>
 
-          {/* Parrilla */}
+          {/* Parrilla — oculto vía SHOW_PARRILLA */}
+          {SHOW_PARRILLA && (
           <button
             onClick={() => goTo("parrilla")}
             className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
@@ -781,6 +1242,7 @@ export default function Home() {
               </span>
             )}
           </button>
+          )}
 
           {/* SISTEMA — visualmente discreto */}
           <p className="text-[9px] uppercase tracking-[0.15em] text-zinc-700 px-2 mb-1.5 mt-6">Sistema</p>
@@ -991,8 +1453,9 @@ export default function Home() {
             <Mapa mapa={ep.mapa} open={mapaOpen} toggle={() => setMapaOpen(!mapaOpen)} />
             {phase && phase !== "done" && phase !== "waiting_selection" && <GenStatus phase={phase} />}
             <div className="flex items-center gap-1 mb-5 border-b border-stone-200">{tabs.map(t => <button key={t.key} onClick={() => setTab(t.key)} className="flex items-center gap-1.5 px-4 py-3 text-sm font-medium border-b-2" style={{ borderColor: tab === t.key ? O : "transparent", color: tab === t.key ? O : MU }}><span>{t.icon}</span> {t.label}</button>)}</div>
-            {tab === "contenido" && <ContenidoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} onGenerate={generateContent} generatingContent={genContent} />}
-            {tab === "repurpose" && <RepurposeTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
+            {tab === "episodio" && <ContenidoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} onGenerate={generateContent} generatingContent={genContent} />}
+            {tab === "reels" && <ReelsTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
+            {tab === "intros" && <IntrosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} />}
           </div>
         )}

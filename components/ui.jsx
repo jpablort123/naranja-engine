@@ -232,8 +232,12 @@ export function SendToParrillaModal({ pieces, source, onClose, onSent }) {
   );
 }
 
+// Parrilla oculta en la UI. Cambiar a true para reactivar el botón.
+const SHOW_PARRILLA = false;
+
 export function SendToParrillaBtn({ pieces, source, onSent }) {
   const [open, setOpen] = useState(false);
+  if (!SHOW_PARRILLA) return null;
   return (
     <>
       <button onClick={() => setOpen(true)}
