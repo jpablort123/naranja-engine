@@ -223,6 +223,124 @@ ${tx}`,
       // Do not persist here — client merges and calls PUT /api/episodes with the updated repurpose_content.
     }
 
+    // ═══ PHASE: MEDIANOS-CANDIDATOS ═══
+    // Transcript con timestamps + mapa + ángulos seleccionados (prioridad blanda) → array de candidatos.
+    // Guardar en episodes.medianos_candidatos.
+    else if (phase === 'medianos-candidatos') {
+      const system = await buildSystem(['adn', 'medianos']);
+      // Transcript completo con timestamps — el modelo necesita ver las marcas para proponer rangos.
+      // Techo de 60k chars para dejar aire al system prompt sin exceder max context útil.
+      const tx = ep.transcript.substring(0, 60000);
+      const mapaCtx = mapa
+        ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}\nTENSIONES: ${(mapa.tensiones || []).join(' | ')}`
+        : '';
+      const anglesCtx = (selected_angles || []).length > 0
+        ? (selected_angles || []).map((a, i) => `${i + 1}. ${a?.titulo || ''}${a?.descripcion ? ` — ${a.descripcion}` : ''}`).join('\n')
+        : '(sin ángulos seleccionados por el usuario)';
+
+      result = await callClaude(
+        `Analiza esta transcripción CON TIMESTAMPS y propone candidatos de contenido mediano: tramos de 4-12 minutos que pueden empaquetarse como mini-episodios centrados en un solo tema desarrollado dentro del episodio.
+
+Prioridad blanda: prioriza tramos que toquen los ángulos que el usuario ya seleccionó, pero no te limites a ellos — si encontrás un tramo distinto que también merece ser mediano, incluílo.
+
+REGLAS ESTRICTAS DE FORMATO:
+- rango_inicio debe ser temporalmente ANTERIOR a rango_fin.
+- duracion_estimada_min debe corresponder al rango real (minutos redondeados).
+- Los timestamps deben venir de la transcripción, no inventados.
+
+ÁNGULOS SELECCIONADOS (prioridad blanda):
+${anglesCtx}
+
+MAPA DEL EPISODIO:
+${mapaCtx}
+
+Responde SOLO con JSON válido:
+{
+  "candidatos": [
+    {
+      "id": "m1",
+      "titulo_trabajo": "título corto de trabajo del mediano",
+      "rango_inicio": "MM:SS o HH:MM:SS",
+      "rango_fin": "MM:SS o HH:MM:SS",
+      "duracion_estimada_min": 6,
+      "tipo_angulo": "una etiqueta corta del ángulo o tensión que desarrolla el tramo",
+      "razon": "por qué este tramo funciona solo como mediano — una oración",
+      "angulos_relacionados": [3, 6]
+    }
+  ]
+}
+
+angulos_relacionados: array de índices (1-based) de los ángulos seleccionados que este candidato toca. Puede ir vacío.
+
+TRANSCRIPCIÓN:
+${tx}`,
+        system
+      );
+      updates.medianos_candidatos = result.candidatos || [];
+    }
+
+    // ═══ PHASE: MEDIANOS-DESARROLLO ═══
+    // Candidatos seleccionados + transcript con timestamps + mapa → piezas desarrolladas con paquete completo.
+    // Guardar en episodes.medianos.
+    else if (phase === 'medianos-desarrollo') {
+      const system = await buildSystem(['adn', 'medianos']);
+      const tx = ep.transcript.substring(0, 60000);
+      const seleccionados = body.candidatos_seleccionados || [];
+      const mapaCtx = mapa
+        ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}`
+        : '';
+      const candCtx = seleccionados.map((c, i) => `${i + 1}. id=${c.id || `m${i + 1}`}
+   titulo_trabajo: ${c.titulo_trabajo || ''}
+   rango: ${c.rango_inicio || ''} → ${c.rango_fin || ''}
+   duracion_estimada_min: ${c.duracion_estimada_min || ''}
+   tipo_angulo: ${c.tipo_angulo || ''}
+   razon: ${c.razon || ''}`).join('\n\n');
+
+      result = await callClaude(
+        `Desarrolla estos ${seleccionados.length} candidatos de contenido mediano en piezas listas para producir. Cada pieza es un mini-episodio de 4-12 minutos, empaquetado con título, descripción de YouTube y 3 conceptos de thumbnail.
+
+REGLAS ESTRICTAS DE FORMATO:
+- rango_inicio SIEMPRE temporalmente anterior a rango_fin.
+- duracion_estimada_min corresponde al rango real.
+- inicio_textual y cierre_textual deben ser CITAS TEXTUALES EXACTAS de la transcripción (dentro del rango del mediano). No parafrasees. No limpies. Copia literal, con muletillas y puntuación como aparezcan.
+- Devolvé un objeto por candidato, manteniendo el mismo id.
+
+MAPA DEL EPISODIO:
+${mapaCtx}
+
+CANDIDATOS A DESARROLLAR:
+${candCtx}
+
+Responde SOLO con JSON válido:
+{
+  "medianos": [
+    {
+      "id": "m1",
+      "titulo_trabajo": "título corto de trabajo (mantener el del candidato)",
+      "rango_inicio": "MM:SS o HH:MM:SS",
+      "rango_fin": "MM:SS o HH:MM:SS",
+      "duracion_estimada_min": 6,
+      "tipo_angulo": "etiqueta del ángulo",
+      "inicio_textual": "cita exacta con la que arranca el tramo, tal cual en la transcripción",
+      "cierre_textual": "cita exacta con la que cierra el tramo, tal cual en la transcripción",
+      "titulos": ["título 1", "título 2", "título 3", "título 4", "título 5"],
+      "descripcion_youtube": "500-800 caracteres con timestamps y hashtags si corresponde",
+      "thumbnails": [
+        { "opcion": "A", "concepto": "composición + texto sobreimpreso" },
+        { "opcion": "B", "concepto": "composición + texto sobreimpreso" },
+        { "opcion": "C", "concepto": "composición + texto sobreimpreso" }
+      ]
+    }
+  ]
+}
+
+TRANSCRIPCIÓN:
+${tx}`,
+        system
+      );
+      updates.medianos = result.medianos || [];
+    }
+
     // ═══ PHASE: INTROS_ONLY ═══
     // Selected angles → just intros (same protocol as legacy repurpose intros)
     else if (phase === 'intros_only') {

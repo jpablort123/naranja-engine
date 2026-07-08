@@ -838,6 +838,449 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
   </div>;
 }
 
+// ═══ TAB: MEDIANOS ═══
+// Contenido mediano: piezas de 4-12 min empaquetadas como mini-episodios. Dos pasos:
+// Fase A (candidatos) → JP selecciona → Fase B (desarrollo).
+// Requiere transcript con timestamps (Descript).
+function MedianosTab({ ep, onUpdate, onLearn }) {
+  // Detección de timestamps: [mm:ss], [hh:mm:ss], mm:ss o hh:mm:ss sueltos en el transcript.
+  const hasTimestamps = /\[?\b\d{1,2}:\d{2}(?::\d{2})?\b\]?/.test(ep?.transcript || "");
+
+  const candidatos = ep?.medianos_candidatos || [];
+  const medianos = ep?.medianos || [];
+  const selectedIds = ep?.medianos_seleccionados || [];
+
+  const [genCand, setGenCand] = useState(false);
+  const [genDev, setGenDev] = useState(false);
+  const [regenCand, setRegenCand] = useState(false);
+  const [titleFb, setTitleFb] = useState({}); // { "medianoIdx-titleIdx": string }
+  const [applying, setApplying] = useState({}); // por mediano idx
+  const [applied, setApplied] = useState({});
+  const [editM, setEditM] = useState(null);
+
+  const selectedAngles = (ep?.selected_ideas || []).map(i => (ep?.ideas || [])[i]).filter(Boolean);
+
+  const generateCandidatos = async () => {
+    setGenCand(true);
+    const res = await generate({
+      episode_id: ep.id,
+      phase: "medianos-candidatos",
+      selected_angles: selectedAngles,
+      mapa: ep.mapa,
+    });
+    if (res?.result?.candidatos) {
+      onUpdate({ medianos_candidatos: res.result.candidatos });
+    } else if (res?.error) {
+      alert("Error generando candidatos: " + res.error);
+    }
+    setGenCand(false);
+    setRegenCand(false);
+  };
+
+  const toggleCand = (id) => {
+    const next = selectedIds.includes(id) ? selectedIds.filter(x => x !== id) : [...selectedIds, id];
+    onUpdate({ medianos_seleccionados: next });
+  };
+
+  const desarrollar = async () => {
+    if (selectedIds.length === 0) return;
+    const seleccionados = candidatos.filter(c => selectedIds.includes(c.id));
+    setGenDev(true);
+    const res = await generate({
+      episode_id: ep.id,
+      phase: "medianos-desarrollo",
+      mapa: ep.mapa,
+      candidatos_seleccionados: seleccionados,
+    });
+    if (res?.result?.medianos) {
+      onUpdate({ medianos: res.result.medianos });
+    } else if (res?.error) {
+      alert("Error desarrollando medianos: " + res.error);
+    }
+    setGenDev(false);
+  };
+
+  const applyTitleFb = async (mIdx) => {
+    const m = medianos[mIdx];
+    if (!m) return;
+    const keyPrefix = `${mIdx}-`;
+    const fbs = Object.entries(titleFb).filter(([k, v]) => k.startsWith(keyPrefix) && v.trim());
+    if (fbs.length === 0) return;
+    setApplying(prev => ({ ...prev, [mIdx]: true }));
+    const fbText = fbs.map(([k, v]) => {
+      const ti = parseInt(k.replace(keyPrefix, ""), 10);
+      return `Título ${ti + 1} ("${m.titulos?.[ti]}"): ${v}`;
+    }).join("\n");
+    const res = await generate({
+      prompt: `Tienes estos 5 títulos para el mediano "${m.titulo_trabajo}":\n${(m.titulos || []).map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\nFeedback:\n${fbText}\n\nRegenera SOLO los que tienen feedback. Mantén los demás igual.\nJSON: { "titulos": ["los 5 títulos actualizados"] }`,
+      protocols: ['adn', 'medianos'],
+    });
+    if (res?.result?.titulos) {
+      const nextMedianos = medianos.map((x, i) => i === mIdx ? { ...x, titulos: res.result.titulos } : x);
+      onUpdate({ medianos: nextMedianos });
+    }
+    fbs.forEach(([, v]) => onLearn("medianos", v));
+    setApplying(prev => ({ ...prev, [mIdx]: false }));
+    setApplied(prev => ({ ...prev, [mIdx]: true }));
+    setTitleFb(prev => {
+      const n = { ...prev };
+      fbs.forEach(([k]) => { delete n[k]; });
+      return n;
+    });
+    setTimeout(() => setApplied(prev => ({ ...prev, [mIdx]: false })), 3000);
+  };
+
+  const applyDescFb = async (mIdx, fb) => {
+    const m = medianos[mIdx];
+    if (!m) return;
+    const res = await generate({
+      prompt: `Descripción actual de YouTube para el mediano "${m.titulo_trabajo}":\n"${m.descripcion_youtube || ""}"\n\nFeedback: ${fb}\n\nRegenera aplicando feedback. 500-800 caracteres, con timestamps y hashtags si corresponde.\nJSON: { "texto": "descripción regenerada" }`,
+      protocols: ['adn', 'medianos'],
+    });
+    if (res?.result?.texto) {
+      const nextMedianos = medianos.map((x, i) => i === mIdx ? { ...x, descripcion_youtube: res.result.texto } : x);
+      onUpdate({ medianos: nextMedianos });
+    }
+    onLearn("medianos", fb);
+  };
+
+  // ── Guard: sin timestamps
+  if (!hasTimestamps) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-xl flex items-center justify-center" style={{ background: OL }}>
+          <span className="text-2xl">🎬</span>
+        </div>
+        <h3 className="font-semibold text-[15px] text-stone-800 mb-1">Contenido mediano</h3>
+        <p className="text-sm text-stone-500 max-w-md mx-auto">
+          El contenido mediano necesita una transcripción con marcas de tiempo (Descript). Este episodio no las tiene.
+        </p>
+      </div>
+    );
+  }
+
+  // ── Estado vacío: sin candidatos aún
+  if (candidatos.length === 0 && !genCand) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-white p-8 text-center">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-xl flex items-center justify-center" style={{ background: OL }}>
+          <span className="text-2xl">🎬</span>
+        </div>
+        <h3 className="font-semibold text-[15px] text-stone-800 mb-1">Contenido mediano</h3>
+        <p className="text-sm text-stone-500 max-w-md mx-auto mb-5">
+          Piezas de 4-12 min centradas en un tema desarrollado del episodio, empaquetadas como mini-episodios (título, descripción de YouTube, thumbnails).
+        </p>
+        <button
+          onClick={generateCandidatos}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90"
+          style={{ background: O }}
+        >
+          <Sparkles size={14} /> Generar candidatos de contenido mediano
+        </button>
+      </div>
+    );
+  }
+
+  // ── Loading candidatos
+  if (genCand) {
+    return (
+      <div className="rounded-xl border border-stone-200 bg-white p-5">
+        <h3 className="font-semibold text-[15px] text-stone-800 mb-1">🎬 Buscando candidatos</h3>
+        <p className="text-xs text-orange-500 mb-3 flex items-center gap-1">
+          <Loader2 size={12} className="animate-spin" /> Analizando la transcripción y proponiendo tramos...
+        </p>
+        <Skel n={6} />
+      </div>
+    );
+  }
+
+  const anyDeveloped = medianos.length > 0;
+
+  return (
+    <div>
+      {/* ── PASO 1: CANDIDATOS ── */}
+      <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h3 className="font-semibold text-[15px] text-stone-800 flex items-center gap-2">🎬 Candidatos de contenido mediano</h3>
+          <button
+            onClick={() => { setRegenCand(true); generateCandidatos(); }}
+            disabled={regenCand}
+            className="text-xs text-stone-400 hover:text-orange-600 flex items-center gap-1 shrink-0"
+          >
+            <Sparkles size={11} /> {regenCand ? "Regenerando..." : "Regenerar"}
+          </button>
+        </div>
+        <p className="text-xs text-stone-400 mb-4">
+          Selecciona los que quieras desarrollar como mini-episodios. Cada uno queda como una pieza independiente.
+        </p>
+
+        <div className="space-y-1.5 mb-4">
+          {candidatos.map((c, i) => {
+            const isSel = selectedIds.includes(c.id);
+            const touchesAngles = Array.isArray(c.angulos_relacionados) && c.angulos_relacionados.length > 0;
+            return (
+              <div key={c.id || i} className="rounded-xl border transition-all"
+                style={{ borderColor: isSel ? O : "#E7E5E4", background: isSel ? OL : "white" }}>
+                <div className="flex items-start gap-3 p-3 cursor-pointer" onClick={() => toggleCand(c.id)}>
+                  <div className="mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0"
+                    style={{ borderColor: isSel ? O : "#D6D3D1", background: isSel ? O : "white" }}>
+                    {isSel && <Check size={12} color="white" strokeWidth={3} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <p className="text-sm font-medium text-stone-800">{c.titulo_trabajo}</p>
+                      {c.tipo_angulo && <Badge label={c.tipo_angulo} />}
+                    </div>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className="text-[11px] font-mono text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md">
+                        {c.rango_inicio} – {c.rango_fin}
+                      </span>
+                      {c.duracion_estimada_min && (
+                        <span className="text-[11px] text-stone-400">≈ {c.duracion_estimada_min} min</span>
+                      )}
+                      {touchesAngles && (
+                        <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: OL, color: O }}>
+                          toca los ángulos que elegiste
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-stone-500 leading-relaxed">{c.razon}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Barra de selección */}
+        <div className="flex items-center gap-3 pt-3 border-t border-stone-100">
+          <p className="text-xs text-stone-500 flex-1">
+            {selectedIds.length === 0
+              ? "Selecciona al menos uno para desarrollar."
+              : `${selectedIds.length} mediano${selectedIds.length === 1 ? "" : "s"} seleccionado${selectedIds.length === 1 ? "" : "s"}`}
+          </p>
+          <button
+            onClick={desarrollar}
+            disabled={selectedIds.length === 0 || genDev}
+            className="py-2.5 px-5 rounded-xl text-sm font-semibold text-white flex items-center gap-2 hover:opacity-90"
+            style={{
+              background: selectedIds.length > 0 && !genDev ? O : "#D6D3D1",
+              cursor: selectedIds.length > 0 && !genDev ? "pointer" : "not-allowed",
+            }}
+          >
+            {genDev
+              ? <><Loader2 size={14} className="animate-spin" /> Desarrollando...</>
+              : <><Sparkles size={14} /> Desarrollar {selectedIds.length || ""} mediano{selectedIds.length === 1 ? "" : "s"}</>}
+          </button>
+        </div>
+      </div>
+
+      {/* ── PASO 2: PIEZAS DESARROLLADAS ── */}
+      {genDev && !anyDeveloped && (
+        <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
+          <h3 className="font-semibold text-[15px] text-stone-800 mb-1">🎬 Desarrollando piezas</h3>
+          <p className="text-xs text-orange-500 mb-3 flex items-center gap-1">
+            <Loader2 size={12} className="animate-spin" /> Armando títulos, descripción y thumbnails por cada mediano...
+          </p>
+          <Skel n={8} />
+        </div>
+      )}
+
+      {anyDeveloped && medianos.map((m, mIdx) => {
+        // Payload de copia completo (ficha del mediano listo para producir)
+        const fullText = [
+          `${m.titulo_trabajo}`,
+          `${m.rango_inicio} – ${m.rango_fin} (≈ ${m.duracion_estimada_min} min)`,
+          m.tipo_angulo ? `Ángulo: ${m.tipo_angulo}` : "",
+          "",
+          "INICIO TEXTUAL:",
+          m.inicio_textual || "",
+          "",
+          "CIERRE TEXTUAL:",
+          m.cierre_textual || "",
+          "",
+          "TÍTULOS:",
+          ...(m.titulos || []).map((t, i) => `${i + 1}. ${t}`),
+          "",
+          "DESCRIPCIÓN YOUTUBE:",
+          m.descripcion_youtube || "",
+          "",
+          "THUMBNAILS:",
+          ...(m.thumbnails || []).map(th => `${th.opcion}. ${th.concepto}`),
+        ].filter(x => x !== undefined).join("\n");
+
+        return (
+          <div key={m.id || mIdx} className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
+            {/* Header de la pieza */}
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs font-bold text-stone-400">#{mIdx + 1}</span>
+                  <EditableText
+                    text={m.titulo_trabajo || ""}
+                    onSave={v => {
+                      const next = medianos.map((x, i) => i === mIdx ? { ...x, titulo_trabajo: v } : x);
+                      onUpdate({ medianos: next });
+                    }}
+                  />
+                  {m.tipo_angulo && <Badge label={m.tipo_angulo} />}
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-mono text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md">
+                    {m.rango_inicio} – {m.rango_fin}
+                  </span>
+                  {m.duracion_estimada_min && (
+                    <span className="text-[11px] text-stone-400">≈ {m.duracion_estimada_min} min</span>
+                  )}
+                </div>
+              </div>
+              <CopyBtn text={fullText} />
+            </div>
+
+            {/* Inicio textual (cita) */}
+            {m.inicio_textual !== undefined && (
+              <div className="mb-3 rounded-lg p-3" style={{ background: "#F5F5F4" }}>
+                <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Inicio textual</p>
+                <EditableText
+                  text={m.inicio_textual || ""}
+                  onSave={v => {
+                    const next = medianos.map((x, i) => i === mIdx ? { ...x, inicio_textual: v } : x);
+                    onUpdate({ medianos: next });
+                  }}
+                  multiline
+                />
+              </div>
+            )}
+
+            {/* Cierre textual (cita) */}
+            {m.cierre_textual !== undefined && (
+              <div className="mb-4 rounded-lg p-3" style={{ background: "#F5F5F4" }}>
+                <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Cierre textual</p>
+                <EditableText
+                  text={m.cierre_textual || ""}
+                  onSave={v => {
+                    const next = medianos.map((x, i) => i === mIdx ? { ...x, cierre_textual: v } : x);
+                    onUpdate({ medianos: next });
+                  }}
+                  multiline
+                />
+              </div>
+            )}
+
+            {/* Títulos */}
+            {m.titulos?.length > 0 && (
+              <div className="mb-4">
+                <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-2">Títulos ({m.titulos.length})</p>
+                <div className="space-y-0.5">
+                  {m.titulos.map((t, ti) => (
+                    <div key={ti}>
+                      <div className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-stone-50 group">
+                        <span className="text-xs font-medium text-stone-400 w-5 shrink-0">{ti + 1}</span>
+                        <div className="flex-1">
+                          <EditableText
+                            text={t}
+                            onSave={v => {
+                              const nextTitulos = m.titulos.map((x, k) => k === ti ? v : x);
+                              const next = medianos.map((x, i) => i === mIdx ? { ...x, titulos: nextTitulos } : x);
+                              onUpdate({ medianos: next });
+                            }}
+                          />
+                        </div>
+                        <CopyBtn text={t} />
+                      </div>
+                      <div className="ml-10 mr-3 mb-1">
+                        <input
+                          value={titleFb[`${mIdx}-${ti}`] || ""}
+                          onChange={e => setTitleFb({ ...titleFb, [`${mIdx}-${ti}`]: e.target.value })}
+                          placeholder="Feedback sobre este título..."
+                          className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <ApplyBar
+                  feedbacks={Object.fromEntries(Object.entries(titleFb).filter(([k]) => k.startsWith(`${mIdx}-`)))}
+                  onApply={() => applyTitleFb(mIdx)}
+                  applying={applying[mIdx]}
+                  applied={applied[mIdx]}
+                />
+              </div>
+            )}
+
+            {/* Descripción YouTube */}
+            {m.descripcion_youtube !== undefined && (
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Descripción YouTube</p>
+                  {m.descripcion_youtube && (
+                    <AIEditBtn onClick={() => setEditM({
+                      title: `Descripción YouTube — ${m.titulo_trabajo}`,
+                      content: m.descripcion_youtube,
+                      mIdx,
+                    })} />
+                  )}
+                </div>
+                <div className="rounded-lg border border-stone-200 p-3">
+                  <EditableText
+                    text={m.descripcion_youtube || ""}
+                    onSave={v => {
+                      const next = medianos.map((x, i) => i === mIdx ? { ...x, descripcion_youtube: v } : x);
+                      onUpdate({ medianos: next });
+                    }}
+                    multiline
+                  />
+                  <div className="flex items-center justify-between mt-2 pt-2 border-t border-stone-100">
+                    <span className="text-xs text-stone-400">{(m.descripcion_youtube || "").length} chars</span>
+                    <CopyBtn text={m.descripcion_youtube || ""} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Thumbnails */}
+            {m.thumbnails?.length > 0 && (
+              <div>
+                <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-2">Conceptos de thumbnail</p>
+                <div className="space-y-2">
+                  {m.thumbnails.map((th, thi) => (
+                    <div key={thi} className="rounded-xl border border-stone-200 p-3">
+                      <div className="flex items-start gap-3">
+                        <span className="text-xs font-bold text-stone-400 mt-0.5">{th.opcion || String.fromCharCode(65 + thi)}</span>
+                        <div className="flex-1">
+                          <EditableText
+                            text={th.concepto || ""}
+                            onSave={v => {
+                              const nextThumbs = m.thumbnails.map((x, k) => k === thi ? { ...x, concepto: v } : x);
+                              const next = medianos.map((x, i) => i === mIdx ? { ...x, thumbnails: nextThumbs } : x);
+                              onUpdate({ medianos: next });
+                            }}
+                            multiline
+                          />
+                        </div>
+                        <CopyBtn text={th.concepto || ""} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {editM && (
+        <EditModal
+          title={editM.title}
+          content={editM.content}
+          onClose={() => setEditM(null)}
+          onApply={async fb => { await applyDescFb(editM.mIdx, fb); setEditM(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ═══ MAIN APP ═══
 export default function Home() {
   const [eps, setEps] = useState([]); const [idx, setIdx] = useState(-1);
@@ -1039,6 +1482,7 @@ export default function Home() {
     { key: "reels", label: "Reels", icon: "🎥" },
     { key: "intros", label: "Intros", icon: "🎤" },
     { key: "minado", label: "Minado", icon: "⛏️" },
+    { key: "medianos", label: "Medianos", icon: "🎬" },
   ];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
@@ -1457,6 +1901,7 @@ export default function Home() {
             {tab === "reels" && <ReelsTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "intros" && <IntrosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} />}
+            {tab === "medianos" && <MedianosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
           </div>
         )}
       </div>

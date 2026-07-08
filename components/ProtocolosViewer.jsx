@@ -15,6 +15,7 @@ const SLUG_ICONS = {
   'minado': '⛏️',
   'reels': '🎬',
   'linkedin': '💼',
+  'medianos': '🎬',
 };
 
 export default function ProtocolosViewer({ onBack }) {
@@ -34,7 +35,7 @@ export default function ProtocolosViewer({ onBack }) {
 
   const loadProtocols = useCallback(async () => {
     try {
-      const res = await fetch('/api/protocolos');
+      const res = await fetch('/api/protocolos', { cache: 'no-store' });
       const data = await res.json();
       setProtocols(Array.isArray(data) ? data : []);
       if (!activeId && data.length > 0) {
