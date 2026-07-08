@@ -1,6 +1,6 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 17 Junio 2026
+### Última actualización: 7 Julio 2026
 
 ---
 
@@ -33,11 +33,13 @@ Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranj
 ## 3. TABLAS DE SUPABASE (ya creadas)
 
 ```sql
-episodes (id UUID PK, name TEXT, transcript TEXT, mapa JSONB, titulos JSONB, descripcion_spotify TEXT, descripcion_youtube TEXT, thumbnails JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, minado JSONB, status TEXT, created_at, updated_at)
+episodes (id UUID PK, name TEXT, transcript TEXT, mapa JSONB, titulos JSONB, descripcion_spotify TEXT, descripcion_youtube TEXT, thumbnails JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, minado JSONB, medianos_candidatos JSONB, medianos_seleccionados JSONB, medianos JSONB, status TEXT, created_at, updated_at)
+
+newsletters (id UUID PK, name TEXT, articulo TEXT, resumen JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, status TEXT, created_at, updated_at)
 
 protocolos (id UUID PK, name TEXT, slug TEXT UNIQUE, content TEXT, version INTEGER, created_at, updated_at)
 
-learnings (id UUID PK, episode_id UUID FK, section TEXT, original_content TEXT, feedback TEXT, proposed_change TEXT, target_protocol_id UUID FK, target_protocol_name TEXT, status TEXT default 'draft', created_at)
+learnings (id UUID PK, episode_id UUID FK, newsletter_id UUID FK, section TEXT, original_content TEXT, feedback TEXT, proposed_change TEXT, target_protocol_id UUID FK, target_protocol_name TEXT, status TEXT default 'draft', created_at)
 
 protocol_history (id UUID PK, protocol_id UUID FK, previous_content TEXT, new_content TEXT, learning_ids JSONB, summary TEXT, created_at)
 
@@ -51,8 +53,18 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 - `episodes.selected_ideas` → array de índices de ángulos seleccionados por JP
 - `episodes.mapa` → mapa estructurado del episodio (tesis, datos_duros, ideas, tensiones, frases, historia_personal, conexiones)
 - `episodes.minado` → objeto con `momentos` (clips para redes) y `voz_en_off` (presentaciones del invitado)
-- `episodes.repurpose_content` → objeto con `intros`, `reels`, `linkedin`
-- `protocolos` → tabla con los 7 protocolos del sistema, ya cargados (ver sección 13)
+- `episodes.repurpose_content` → objeto con `intros`, `reels`, `reels_v2`, `linkedin` (reels_v2 es el formato nuevo por-ángulo con propuestas)
+- `episodes.medianos_candidatos` → array de candidatos propuestos por la Fase A del sprint Medianos (título de trabajo, rango, duración, tipo de ángulo, razón, ángulos_relacionados)
+- `episodes.medianos_seleccionados` → array de ids de los candidatos que JP aprobó para desarrollar
+- `episodes.medianos` → array de piezas desarrolladas por la Fase B: cada una con rango, duración, tipo, inicio_textual, cierre_textual, 5 títulos, descripcion_youtube y 3 conceptos de thumbnail
+- `newsletters.articulo` → texto completo del artículo escrito por el autor (JP no lo reescribe; solo lo repurposea). Se puede subir en `.txt`, `.md` o `.docx`
+- `newsletters.resumen` → mapa "plomería silenciosa" del artículo (tesis, datos_duros, ideas_clave, tensiones, frases, conexiones). No se muestra al usuario, alimenta las llamadas siguientes
+- `newsletters.ideas` → lista de ideas validables extraídas del artículo (fase `ideas`)
+- `newsletters.selected_ideas` → ideas que JP eligió para repurposear
+- `newsletters.repurpose_content` → objeto con `reels`, `carrusel`, `linkedin` (piezas generadas en paralelo desde las ideas seleccionadas)
+- `newsletters.status` → `'draft' | 'ideas_ready' | 'complete'`
+- `protocolos` → tabla con los 9 protocolos del sistema, ya cargados (ver sección 13)
+- `learnings.newsletter_id` → cuando el feedback viene de una pieza del Newsletter en vez de un episodio. Un learning tiene `episode_id` O `newsletter_id`, nunca ambos
 - `ideas.status` → `'draft'` (default), `'merged'` (apareada — se oculta del Fixture), `'ready'` (enviada a la parrilla — se oculta del Fixture)
 - `ideas.temperature` → `'spotlight' | 'warm' | 'cold'` (3 niveles; `'hot'` legado se mapea a `warm` en runtime)
 - `ideas.category` → `'undecided' | 'contenido' | 'newsletter'`
@@ -63,11 +75,13 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 - `parrilla_items.origin_type` → `'episode' | 'newsletter' | 'fixture' | 'manual'`
 - `parrilla_items.idea_group_id` + `idea_group_title` → agrupan piezas que vienen de la misma idea. Cuando todas las piezas de un grupo están programadas o descartadas, el grupo desaparece del inbox.
 
+> Los schemas exactos (defaults, constraints) están en Supabase — esta lista refleja las columnas que efectivamente se leen/escriben desde el código. Si aparecen columnas nuevas en la tabla que no están acá, revisar contra `app/api/episodes/route.js`, `app/api/newsletters/route.js` y los generadores en `app/api/generate/` y `app/api/newsletters/generate/`.
+
 ---
 
-## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.5)
+## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.6)
 
-La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban).
+La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios).
 
 ### Lo que tiene y funciona (Sprint 1 COMPLETO)
 - Sidebar oscuro con lista de episodios + botón "Nuevo episodio"
@@ -159,6 +173,31 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
   - Crea automáticamente un `learning` draft (`original_content` = IA, `feedback` = manual) solo si hay versión IA con la que comparar
   - Sistema aprende silenciosamente de la diferencia entre lo que generó y lo que JP terminó escribiendo
 
+### Newsletter (Sprint 3 COMPLETO — repurpose de artículo escrito por el autor)
+- **Feature separada del podcast.** JP escribe el newsletter aparte (Claude directo, editor de texto, lo que sea) y sube el artículo terminado. El Engine no reescribe el artículo, solo lo repurposea.
+- **Sidebar con Newsletter expandible** (`Mail` icon) al lado de Podcast, con lista de últimas 5 ediciones y botón "Ver todos". Cada item tiene basurita para borrar (visible al hover, con `confirm()` y limpieza en cascada).
+- **Upload:** modal (`NewsletterUploadModal.jsx`) que acepta `.txt`, `.md` y `.docx`. Los `.docx` los parsea el endpoint `POST /api/newsletters/extract` (runtime Node, usa `mammoth`) y devuelve texto plano. El resto del pipeline usa el mismo campo `articulo`.
+- **Fase 1 — `ideas`:** `POST /api/newsletters/generate { newsletter_id, phase: 'ideas' }`. System prompt = `adn + mapa-angulos`. Output: `resumen` (mapa "plomería silenciosa" del artículo) + lista de ideas validables. Se guarda en `newsletters.resumen` y `newsletters.ideas`; status → `ideas_ready`.
+- **Fase 2 — `repurpose`:** cuando JP selecciona ideas y confirma, `POST /api/newsletters/generate { newsletter_id, phase: 'repurpose', selected_ideas }`. **Tres llamadas en paralelo:**
+  - `adn + reels` → 1 guión de reel por idea
+  - `adn + carrusel` → 1 carrusel de Instagram por idea (8-10 slides con `portada | desarrollo | cta`, patrón de gancho: `dato_contundente | contraintuitivo | dolor_directo | promesa_lista | error_senalado`)
+  - `adn + linkedin` → 1 post de LinkedIn por idea
+- Output se guarda en `newsletters.repurpose_content = { reels, carrusel, linkedin }`; status → `complete`.
+- **`NewsletterView.jsx`** renderiza las 3 piezas por idea, con edición manual, "Editar con IA y aprender" en cada bloque, y `CarruselBlock` slide por slide. El botón "Enviar a Parrilla" está disponible (aunque la vista de Parrilla esté oculta — ver más abajo).
+- Aprendizajes: cada feedback genera un learning con `newsletter_id` en vez de `episode_id` y `target_protocol_name` del protocolo tocado (`reels` | `carrusel` | `linkedin`).
+
+### Sprint Medianos (7 Julio 2026 — COMPLETO)
+- **Cuarto tab "Medianos 🎬"** en el workspace del episodio, junto a Episodio / Reels / Intros / Minado. Producto separado del minado de micro-contenido: piezas de 4-12 minutos, cada una centrada en un tema desarrollado dentro del episodio, empaquetadas como mini-episodios (título, descripción de YouTube, thumbnails).
+- **Protocolo nuevo `medianos`** (slug `medianos`, v1) en la tabla `protocolos`. Capa 1 — hereda ADN. Trae reglas de qué convierte a un tramo en "mediano" (tesis desarrollada, arco propio, cita textual clara al inicio y al final), formato de output, y su sección `[APRENDIZAJES]` para inyección en runtime.
+- **Requiere transcript con timestamps (Descript).** El tab detecta si el transcript tiene marcas de tiempo (`[mm:ss]`, `mm:ss`, `[hh:mm:ss]`, `hh:mm:ss`) y si no las tiene muestra un mensaje explicativo y deshabilita la generación. Los episodios viejos sin timestamps simplemente no disparan la feature.
+- **Flujo de dos pasos con decisión humana en medio** (mismo patrón que ángulos):
+  - **Fase A — `medianos-candidatos`:** `POST /api/generate { episode_id, phase: 'medianos-candidatos', selected_angles, mapa }`. System prompt = `adn + medianos` (+ aprendizajes de `medianos` aprobados). Input: transcript con timestamps (60k chars) + mapa + ángulos seleccionados como **prioridad blanda**. Output: array de candidatos `{ id, titulo_trabajo, rango_inicio, rango_fin, duracion_estimada_min, tipo_angulo, razon, angulos_relacionados }`. Guarda en `episodes.medianos_candidatos`.
+  - JP selecciona con checkboxes (`episodes.medianos_seleccionados`) y clickea "Desarrollar N medianos".
+  - **Fase B — `medianos-desarrollo`:** `POST /api/generate { episode_id, phase: 'medianos-desarrollo', mapa, candidatos_seleccionados }`. Mismo system prompt. Input: transcript con timestamps + mapa + candidatos aprobados. Output: array de piezas completas `{ id, titulo_trabajo, rango_inicio, rango_fin, duracion_estimada_min, tipo_angulo, inicio_textual, cierre_textual, titulos: [5], descripcion_youtube, thumbnails: [3] }`. Guarda en `episodes.medianos`.
+- **Reglas duras reforzadas en el prompt:** `rango_inicio` siempre temporalmente anterior a `rango_fin`; `duracion_estimada_min` corresponde al rango real; `inicio_textual` y `cierre_textual` son **citas textuales exactas** del transcript (el código no las reformatea ni las limpia al guardar).
+- **Circuito de aprendizaje conectado:** cada feedback en una pieza mediana crea un `learning` con `target_protocol_name = 'medianos'`, entra al flujo genérico de síntesis (`/api/learnings/synthesize` agrupa por `target_protocol_name`), pasa por aprobación (`/api/learnings/batch`) y se inyecta en la próxima Fase A o Fase B como el resto de los protocolos.
+- **Fix colateral en el visor de Protocolos:** `export const dynamic = 'force-dynamic'` + `.limit(50)` en `GET /api/protocolos` y `cache: 'no-store'` en el fetch cliente — para que la lista siempre refleje Supabase (antes Next.js podía cachear la respuesta y ocultar protocolos agregados a mano en el editor SQL).
+
 ### Mejoras puntuales (17 Junio 2026)
 - **Modelo de Anthropic actualizado a `claude-sonnet-4-6`** (antes `claude-sonnet-4-20250514`, que dejó de ser válido y rompía `/api/generate` en producción). Cambiado en `lib/generation.js` y `app/api/learnings/synthesize/route.js`.
 - **Eliminar episodios y newsletters desde el sidebar:** botón basurita sutil en cada item, visible solo al hacer hover, con `confirm()` antes de borrar. Endpoints `DELETE /api/episodes?id=...` y `DELETE /api/newsletters?id=...` con limpieza en cascada previa: primero `learnings` (FK real probable), después `parrilla_items` e `ideas` filtrando por `origin_type` + `origin_id` (FK lógicas — limpieza para evitar huérfanos), y al final el recurso principal. Si el item borrado estaba seleccionado, `idx`/`nlIdx` se resetean y la vista cae al listado padre (`podcast` / `newsletter`).
@@ -167,6 +206,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 ### Lo que NO funciona todavía
 - No hay chat embebido con contexto → Sprint 4
 - No hay métricas reales de redes alimentando protocolos → Futuro
+- **Parrilla oculta en UI:** el código completo del Sprint 3A (inbox + 3 vistas de calendario + drag-and-drop + checklists) sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`), pero un feature flag `SHOW_PARRILLA = false` en `app/page.js` y `components/ui.jsx` esconde el ítem del sidebar y el botón "Enviar a Parrilla" en las secciones que lo tenían. La vista sigue navegable si se fuerza `activeView='parrilla'`. Para reactivar: flipear el flag en ambos archivos.
 
 ---
 
@@ -204,7 +244,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 
 ---
 
-## 6. FLUJO DE TRABAJO (IMPLEMENTADO en v0.5)
+## 6. FLUJO DE TRABAJO (IMPLEMENTADO en v0.6)
 
 ### Flujo de generación (Sprint 1)
 1. JP sube transcript (.txt)
@@ -227,7 +267,7 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 
 ### Flujo de protocolos (Sprint 2)
 1. JP hace click en "Protocolos" en sidebar → se abre visor de protocolos
-2. Lista de 7 protocolos a la izquierda con badges de learnings
+2. Lista de los 9 protocolos a la izquierda con badges de learnings (7 originales + `carrusel` + `medianos`)
 3. Detalle a la derecha: contenido completo + aprendizajes inyectados en verde
 4. Puede copiar protocolo completo (con learnings), ver historial de versiones, o editar directamente
 
@@ -252,6 +292,26 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 6. Genera contenido desde la idea (LinkedIn / Reel) o pega su propia versión
 7. Cuando una idea está lista, click "📋 Enviar a la parrilla" → desaparece del Fixture con `status='ready'`
 8. La idea (con `status='ready'`) deja de aparecer en el Fixture; las piezas asociadas viajan al inbox de la Parrilla (Sprint 3A) para programación
+
+### Flujo de Newsletter (Sprint 3 — repurpose de artículo)
+1. JP escribe el newsletter por fuera del Engine (Claude directo, editor, etc.)
+2. Sube el artículo en `.txt`, `.md` o `.docx` desde el modal de "Nueva edición"
+3. Si es `.docx`, el endpoint `POST /api/newsletters/extract` lo convierte a texto plano con `mammoth`
+4. El Engine dispara Fase `ideas`: extrae un mapa "plomería silenciosa" del artículo (tesis, datos, tensiones, frases, conexiones) + una lista de ideas validables como piezas independientes
+5. JP ve las ideas, selecciona las que quiere repurposear
+6. El Engine dispara Fase `repurpose`: 3 llamadas en paralelo generan 1 reel + 1 carrusel (8-10 slides con portada/desarrollo/CTA) + 1 post de LinkedIn por cada idea seleccionada
+7. Cada pieza se puede editar manualmente, editar con IA (crea learning), copiar, o enviar a la Parrilla (si el flag `SHOW_PARRILLA` está activo)
+8. Los feedbacks entran al circuito genérico de aprendizaje con `newsletter_id` en vez de `episode_id` y `target_protocol_name` según el bloque (`reels` | `carrusel` | `linkedin`)
+
+### Flujo de Contenido Mediano (Sprint Medianos — mini-episodios)
+1. JP entra al tab **Medianos 🎬** del workspace de un episodio
+2. Si el transcript no tiene timestamps → mensaje explicativo, feature deshabilitada
+3. Click en "Generar candidatos de contenido mediano" → **Fase A** genera 5-8 candidatos con rango `MM:SS – MM:SS`, duración, tipo de ángulo, razón, y ángulos_relacionados (para señalar los que tocan lo que JP ya seleccionó como prioridad blanda)
+4. JP marca los candidatos que quiere desarrollar (checkbox) y clickea "Desarrollar N medianos"
+5. **Fase B** desarrolla cada candidato aprobado en una pieza completa: mantiene rango + duración + tipo, agrega `inicio_textual` y `cierre_textual` (citas exactas del transcript, sin reformatear), 5 títulos, descripción YouTube y 3 conceptos de thumbnail
+6. Cada pieza permite edición manual directa (click), "Editar con IA y aprender" en la descripción, feedback inline en cada título (con `ApplyBar`), y copiar la ficha completa
+7. Los feedbacks entran al circuito de aprendizaje bajo el protocolo `medianos`
+8. JP puede volver a regenerar candidatos o desarrollar más adelante — no es un flujo de un solo tiro
 
 ### Ciclo de vida completo de una idea (referencia rápida)
 1. **Nace** — desde un ángulo de episodio ("Al banco"), desde una pieza de Repurpose (intro / reel / LinkedIn), desde un clip de Minado, o creada manual con "+ Nueva idea" en una columna
@@ -286,6 +346,28 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
   - `adn` + `linkedin` → 2 posts de LinkedIn
 → Input: ángulos seleccionados + mapa
 
+**Fase 5 — `medianos-candidatos` (bajo demanda, tab Medianos):**
+→ System prompt = `adn` + `medianos`
+→ Input: transcript con timestamps (60k chars) + mapa + ángulos seleccionados como prioridad blanda
+→ Output: array de candidatos con rango, duración, tipo de ángulo, razón, ángulos_relacionados
+
+**Fase 6 — `medianos-desarrollo` (bajo demanda, después de seleccionar candidatos):**
+→ System prompt = `adn` + `medianos`
+→ Input: transcript con timestamps + mapa + candidatos aprobados
+→ Output: piezas completas con inicio_textual, cierre_textual (citas exactas), 5 títulos, descripción YouTube, 3 thumbnails
+
+**Newsletter — Fase `ideas`:**
+→ System prompt = `adn` + `mapa-angulos`
+→ Input: artículo del newsletter (30k chars)
+→ Output: `resumen` (plomería silenciosa) + lista de ideas validables
+
+**Newsletter — Fase `repurpose`:**
+→ Tres llamadas en paralelo:
+  - `adn` + `reels` → 1 guión de reel por idea seleccionada
+  - `adn` + `carrusel` → 1 carrusel (8-10 slides) por idea
+  - `adn` + `linkedin` → 1 post de LinkedIn por idea
+→ Input: ideas seleccionadas + resumen del artículo
+
 **Generación desde Fixture (Sprint 3):**
 → Llamada directa a `/api/generate` con `prompt` armado en cliente y `protocols: ['adn', 'linkedin' | 'reels']`
 → Input: contexto compuesto por título + descripción + notas + prompt del autor + ángulo + origen
@@ -293,43 +375,61 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 
 ### Cómo se ve en la UI
 - Al subir un episodio, lo primero que ve JP es el mapa + los 20 ángulos
-- Los ángulos aparecen en la tab de Contenido, ARRIBA de los títulos
+- Los ángulos aparecen en la tab de Episodio (renombrada desde "Contenido"), ARRIBA de los títulos
 - JP selecciona y genera → títulos, descripciones, thumbnails aparecen abajo
-- En Repurpose → genera intros + LinkedIn + Reels
-- En sidebar: "Aprendizajes" (con badge naranja) + "Protocolos" + "Fixture" como items permanentes debajo de episodios
+- Los tabs del workspace son (orden actual): **Episodio 📝 · Reels 🎥 · Intros 🎤 · Minado ⛏️ · Medianos 🎬**
+- Reels usa la estructura v2 (por-ángulo con hooks/desarrollo/cierres/CTAs seleccionables y armado de guión final)
+- Medianos aparece SIEMPRE en el tab bar; si el transcript no tiene timestamps, el contenido del tab muestra el mensaje explicativo en vez del botón de generar
+- En sidebar: **Inicio · Podcast (expandible) · Newsletter (expandible) · Fixture · Protocolos · Aprendizajes** (con badge naranja de drafts). Parrilla está oculta por feature flag (`SHOW_PARRILLA = false`)
 
-### Estructura de archivos (v0.5)
+### Estructura de archivos (v0.6)
 
 ```
 app/
-├── page.js                              → Sidebar + routing por activeView + workspace
+├── page.js                              → Sidebar + routing por activeView + workspace + tabs (incluye MedianosTab)
 ├── layout.js                            → Layout root con DM Sans
 ├── globals.css                          → Estilos globales
 └── api/
-    ├── episodes/route.js                → CRUD de episodios
-    ├── generate/route.js                → Generación con Anthropic (4 fases + regeneración + Fixture)
+    ├── episodes/route.js                → CRUD de episodios (con limpieza en cascada de learnings/parrilla/ideas al DELETE)
+    ├── newsletters/
+    │   ├── route.js                     → CRUD de newsletters (con limpieza en cascada al DELETE)
+    │   ├── extract/route.js             → POST: parsear .docx con mammoth → { text } plano
+    │   └── generate/route.js            → POST: fases 'ideas' y 'repurpose' (reels + carrusel + linkedin en paralelo)
+    ├── generate/route.js                → Generación con Anthropic. Fases actuales: angles, contenido, minado,
+    │                                       repurpose (legacy), reels_v2, reels_variant, intros_only,
+    │                                       medianos-candidatos, medianos-desarrollo. Además: prompt libre con protocols[] para Fixture y regeneraciones.
     ├── ideas/route.js                   → CRUD del Fixture (GET con filtro de categoría, POST, PUT, DELETE)
     ├── learnings/
-    │   ├── route.js                     → CRUD de learnings (POST crear, GET listar)
-    │   ├── synthesize/route.js          → POST: agrupa drafts por protocolo, Claude sintetiza patrones
-    │   └── batch/route.js               → POST: batch approve/reject/circumstantial + protocol_history
+    │   ├── route.js                     → CRUD de learnings (POST crear, GET listar). Un learning tiene episode_id O newsletter_id
+    │   ├── synthesize/route.js          → POST: agrupa drafts por target_protocol_name, Claude sintetiza patrones (genérico, sin lista fija de slugs)
+    │   └── batch/route.js               → POST: batch approve/reject/circumstantial + snapshot en protocol_history
     ├── protocolos/
-    │   ├── route.js                     → GET: todos los protocolos con conteos de learnings
+    │   ├── route.js                     → GET: todos los protocolos con conteos de learnings. force-dynamic + no-store para evitar caching
     │   └── [id]/
     │       ├── route.js                 → GET/PUT: protocolo individual (edición con versionado)
     │       └── history/route.js         → GET: historial de versiones del protocolo
-    └── parrilla/
-        ├── route.js                     → GET: items por status y rango de fechas (date_from/date_to o week_start). POST: crear item individual
-        ├── [id]/route.js                → PATCH: actualizar item (scheduled_date, checklist, status, position, title, content)
-        └── batch/route.js               → POST: enviar múltiples piezas desde episodio o fixture de una vez
+    └── parrilla/                        → Endpoints activos aunque la vista esté oculta por feature flag
+        ├── route.js                     → GET: items por status y rango de fechas. POST: crear item individual
+        ├── [id]/route.js                → PATCH: actualizar item
+        └── batch/route.js               → POST: enviar múltiples piezas de una vez
 components/
 ├── FixtureBoard.jsx                     → Kanban del banco de ideas (3 columnas, 3 temperaturas, panel lateral, parrilla, pegar versión)
+├── InicioView.jsx                       → Dashboard "Inicio" con cards de episodios, newsletters, ideas del Fixture y próximos programados
 ├── LearningsReview.jsx                  → Vista de revisión de aprendizajes (síntesis + decisiones)
-├── ParrillaView.jsx                     → Vista de Parrilla completa (inbox con filtros + calendario con 3 vistas: semana, mes, lista)
-└── ProtocolosViewer.jsx                 → Visor de protocolos (split view + edición + historial)
+├── NewsletterUploadModal.jsx            → Modal de subida de newsletter (acepta .txt, .md, .docx; extrae Word server-side)
+├── NewsletterView.jsx                   → Workspace del newsletter (fase ideas + fase repurpose con reels, carrusel, linkedin)
+├── ParrillaView.jsx                     → Vista de Parrilla completa. Oculta por SHOW_PARRILLA=false pero código conservado
+├── ProtocolosViewer.jsx                 → Visor de protocolos (split view + edición + historial + aprendizajes inyectados en verde)
+└── ui.jsx                               → Utilidades compartidas: EditableText, ApplyBar, EditModal, AIEditBtn, CopyBtn, BankBtn, Skel, Badge, SendToParrillaBtn/Modal, etc.
 lib/
-└── supabase.js                          → Clientes de Supabase (browser + server)
+├── generation.js                        → loadProtocol (base + [APRENDIZAJES] aprobados), buildSystem (concat de protocolos), callClaude
+└── supabase.js                          → Cliente de Supabase (anon key)
 ```
+
+En la raíz del repo:
+- `cmo-engine-bible.md` — este documento
+- `spec-sprint-medianos.md` — spec de implementación del Sprint Medianos (referencia histórica)
+- `protocolo-carrusel-v1.md` — copia local del contenido del protocolo `carrusel` (fuente de verdad sigue siendo la tabla `protocolos` en Supabase)
 
 ---
 
@@ -344,12 +444,14 @@ Los protocolos en Notion estaban diseñados para sesiones humano-Claude (redunda
 Protocolo lean (~500 palabras) con: identidad del show, audiencia, posición editorial, tono, reglas de idioma, números como arma, checklist anti-IA. Se carga siempre.
 
 **Capa 1 — Protocolos de fase (se inyecta solo el que corresponde):**
-- `mapa-angulos` — Cómo extraer el mapa y generar 20 ángulos con criterios de evaluación
-- `titulos` — Títulos + descripciones (Spotify/YouTube) + keywords
+- `mapa-angulos` — Cómo extraer el mapa y generar 20 ángulos con criterios de evaluación. También lo usa el newsletter (fase `ideas`) para armar el mapa "plomería silenciosa" del artículo
+- `titulos` — Títulos + descripciones (Spotify/YouTube) + keywords para el episodio
 - `intros` — 10 intros leídos con 4 fórmulas narrativas
-- `minado` — Micro-contenido para redes (NO trailers — se tercerizan)
-- `reels` — Guiones de reel con voz de Daniela
-- `linkedin` — Posts de LinkedIn
+- `minado` — Micro-contenido de 20-90 seg para redes (clips que funcionan solos en el feed, NO trailers — se tercerizan)
+- `medianos` — Contenido mediano de 4-12 min: mini-episodios con rango, inicio/cierre textuales, 5 títulos, descripción YouTube y 3 thumbnails. Requiere transcript con timestamps
+- `reels` — Guiones de reel con voz de Daniela. Se usa tanto en el workspace del episodio (reels_v2 por-ángulo) como en el newsletter (repurpose)
+- `carrusel` — Carrusel de Instagram: 8-10 slides con portada + desarrollo + CTA, 5 patrones de gancho. Se usa en el newsletter (fase `repurpose`); el diseño visual se hace aparte (Canva)
+- `linkedin` — Posts de LinkedIn. Se usa tanto en repurpose del episodio como del newsletter
 
 **Capa 2 — Aprendizajes (se inyectan dinámicamente):**
 Cada protocolo tiene una sección `[APRENDIZAJES]` al final. El Engine busca los aprendizajes aprobados en la tabla `learnings` y los concatena como bullets. Los aprendizajes son una capa separada — el protocolo base no se modifica automáticamente. Periódicamente (cada 10-15 episodios), JP hace un "protocol refresh" donde consolida los aprendizajes más consistentes en el protocolo base.
@@ -382,7 +484,7 @@ Cada protocolo tiene una sección `[APRENDIZAJES]` al final. El Engine busca los
 
 ## 8. SISTEMA DE APRENDIZAJE — LO MÁS IMPORTANTE
 
-### Cómo funciona hoy (v0.5)
+### Cómo funciona hoy (v0.6)
 1. Mientras JP trabaja en un episodio o en una idea del Fixture, cada vez que da feedback, usa "Aplicar cambios y aprender", o pega su propia versión sobre una pieza generada, el sistema crea un borrador de aprendizaje SILENCIOSAMENTE
 2. Los borradores se acumulan — visible como badge naranja en el sidebar ("Aprendizajes" + número)
 3. Los aprendizajes aprobados se inyectan automáticamente en el protocolo correspondiente en runtime
@@ -397,13 +499,15 @@ Cada protocolo tiene una sección `[APRENDIZAJES]` al final. El Engine busca los
 - Periódicamente (cada 10-15 episodios), JP puede hacer un "protocol refresh" manual donde consolida los aprendizajes más consistentes en el protocolo base
 
 ### Dónde aplica "Editar con IA + Aprender"
-- Títulos (feedback inline + "Aplicar cambios y aprender")
+- Títulos del episodio (feedback inline + "Aplicar cambios y aprender")
 - Descripciones Spotify y YouTube (modal de dos columnas)
 - Intros (modal de dos columnas)
 - Sugerencias de thumbnail (feedback inline)
-- Output de repurpose: reels, LinkedIn (edición manual)
+- Output de repurpose del episodio: reels (v2 con hooks/desarrollo/cierres/CTAs), LinkedIn (edición manual)
 - Minado (feedback inline)
 - Piezas generadas desde el Fixture (LinkedIn, Reel)
+- **Newsletter (Sprint 3):** cada pieza del `repurpose_content` — reel, carrusel (con `CarruselBlock`), LinkedIn — tiene "Editar con IA y aprender" que crea learning con `newsletter_id` y `target_protocol_name` correspondiente
+- **Medianos (Sprint Medianos):** títulos con feedback inline + `ApplyBar`, descripción YouTube con modal "Editar con IA y aprender". Todos crean learnings con `target_protocol_name = 'medianos'`
 
 ### "Pegar mi versión" (Sprint 3) — aprendizaje sin prompt
 Cuando JP pega su propia versión sobre una pieza generada en el Fixture, el sistema:
@@ -477,9 +581,13 @@ SIEMPRE disponible tanto edición manual directa (click para editar cualquier te
 
 ---
 
-## 10. PARRILLA — ya implementada en Sprint 3A
+## 10. PARRILLA — implementada en Sprint 3A, hoy OCULTA por feature flag
 
-Ver sección 4 → "Lo que tiene y funciona (Sprint 3A COMPLETO)" para el detalle de lo construido (inbox + 3 vistas de calendario, checklist por tipo, ghost slots, drag-and-drop). El flujo end-to-end está en sección 6 → "Flujo de Parrilla (Sprint 3A)". El schema vive en sección 3 → tabla `parrilla_items`.
+**Estado actual:** el código completo del Sprint 3A vive en el repo (inbox + 3 vistas de calendario, checklist por tipo, ghost slots, drag-and-drop), pero el feature flag `SHOW_PARRILLA = false` (en `app/page.js` y `components/ui.jsx`) esconde el ítem del sidebar y el botón "Enviar a Parrilla" en las secciones que lo tenían (Repurpose, Minado, Fixture, Newsletter). Los endpoints `/api/parrilla/*` siguen activos.
+
+**Por qué está oculta:** decisión de producto puntual — la vista completa vive en el repo esperando reactivación cuando JP retome ese flujo. Para reactivarla: flipear el flag a `true` en los dos archivos.
+
+Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to-end está en sección 6 → "Flujo de Parrilla". El schema vive en sección 3 → tabla `parrilla_items`.
 
 ---
 
@@ -547,7 +655,27 @@ Ver sección 4 → "Lo que tiene y funciona (Sprint 3A COMPLETO)" para el detall
 - ✅ "📝 Pegar mi versión" con creación automática de learning draft (AI vs manual) — aprendizaje sin prompt
 - 📋 Pendiente del Sprint 3: botón "Copiar idea completa con contexto" (bloque markdown listo para pegar en Claude) — se quitó al rediseñar el panel, JP lo sigue queriendo
 
-> **Parrilla — ya implementada en Sprint 3A** (ver bloques Sprint 3A arriba y sección 4). Sale del roadmap pendiente.
+> **Parrilla — ya implementada en Sprint 3A** (ver bloques Sprint 3A arriba y sección 4). Sale del roadmap pendiente. Hoy está oculta por feature flag; el código sigue en el repo.
+
+### Sprint Newsletter ✅ COMPLETO (v0.5)
+- ✅ Sidebar con Newsletter expandible al lado de Podcast
+- ✅ Upload de artículo en `.txt`, `.md` o `.docx` (extracción con `mammoth` server-side)
+- ✅ Fase `ideas`: mapa "plomería silenciosa" + lista de ideas validables (system prompt `adn + mapa-angulos`)
+- ✅ Fase `repurpose`: 3 llamadas en paralelo (reels, carrusel, linkedin), 1 pieza por idea seleccionada
+- ✅ Protocolo `carrusel` en Supabase con arquitectura de 8-10 slides (portada + desarrollo + CTA) y 5 patrones de gancho
+- ✅ NewsletterView con edición manual, "Editar con IA y aprender" y CarruselBlock slide por slide
+- ✅ Aprendizajes con `newsletter_id` en vez de `episode_id` — mismo circuito genérico
+
+### Sprint Medianos ✅ COMPLETO (v0.6, 7 Julio 2026)
+- ✅ Cuarto tab "Medianos 🎬" en el workspace
+- ✅ 3 columnas JSONB nuevas en `episodes`: `medianos_candidatos`, `medianos_seleccionados`, `medianos`
+- ✅ Protocolo `medianos` en Supabase (Capa 1, slug `medianos`, v1) con sección `[APRENDIZAJES]`
+- ✅ Fase A `medianos-candidatos`: propone tramos de 4-12 min con rango, tipo de ángulo y razón, usando ángulos seleccionados como prioridad blanda
+- ✅ Fase B `medianos-desarrollo`: convierte los aprobados en piezas completas (inicio/cierre textuales exactos, 5 títulos, descripción YouTube, 3 thumbnails)
+- ✅ Guarda de timestamps: episodios sin marcas de tiempo muestran mensaje explicativo y no disparan generación
+- ✅ Reglas duras reforzadas en el prompt: rango_inicio antes de rango_fin, duración coherente, citas textuales sin reformatear
+- ✅ Circuito de aprendizaje conectado bajo `target_protocol_name='medianos'` (síntesis y batch son genéricos, no hubo que agregar el slug a ninguna lista)
+- ✅ Fix colateral: `force-dynamic` + `no-store` en `/api/protocolos` para que el visor siempre refleje Supabase
 
 ### Sprint 4 — Chat embebido + pulido (PENDIENTE)
 - Panel lateral con contexto automático (episodio / idea / protocolo / slot de parrilla)
@@ -566,20 +694,22 @@ Ver sección 4 → "Lo que tiene y funciona (Sprint 3A COMPLETO)" para el detall
 
 ## 13. PROTOCOLOS EN SUPABASE — ESTADO ACTUAL
 
-Los 7 protocolos están cargados en la tabla `protocolos` de Supabase (insertados el 17 Mayo 2026).
+Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7 originales se insertaron el 17 Mayo 2026; `carrusel` se agregó durante el sprint del Newsletter; `medianos` se agregó el 7 Julio 2026 durante el sprint homónimo. Los chars y versiones de abajo se confirmaron contra el endpoint `/api/protocolos` en producción; `reels` está en v2 porque se editó desde el visor.
 
 | Slug | Nombre | Versión | Chars | Descripción |
 |------|--------|---------|-------|-------------|
 | `adn` | ADN — Identidad y reglas globales | 1 | 3,472 | Identidad, audiencia, tono, idioma, checklist anti-IA. Se inyecta en TODA llamada. |
-| `mapa-angulos` | Mapa del Episodio + Ángulos | 1 | 4,545 | Cómo extraer mapa estructurado + 20 ángulos con 10 patrones y marcos de evaluación. |
+| `mapa-angulos` | Mapa del Episodio + Ángulos | 1 | 4,545 | Cómo extraer mapa estructurado + 20 ángulos con 10 patrones y marcos de evaluación. También lo usa el newsletter para armar el mapa "plomería silenciosa" del artículo. |
 | `titulos` | Títulos y Descripciones | 1 | 3,372 | 10 títulos (formato fijo, máx 60 chars), descripciones Spotify/YouTube, keywords, pilares. |
 | `intros` | Intros Leídos | 1 | 4,424 | 10 intros con 4 fórmulas narrativas, reglas de construcción, preferencias de Daniela. |
 | `minado` | Minado — Micro-contenido para Redes | 1 | 5,754 | 15-20 clips autónomos, 6 categorías, clips con Daniela [+DANI], voz en off. |
-| `reels` | Reels de Ideas Propias | 1 | 4,501 | 3 guiones de reel, arquitectura 4 tiempos, voz de Daniela con expresiones colombianas. |
-| `linkedin` | LinkedIn Posts | 1 | 3,191 | 2 posts, 5 patrones de hook, estructura hook/desarrollo/cierre, tono intermedio. |
+| `medianos` | Contenido Mediano | 1 | 6,348 | Piezas de 4-12 min empaquetadas como mini-episodios. Rango temporal, tipo de ángulo, inicio/cierre textuales, 5 títulos, descripción YouTube, 3 thumbnails. Requiere transcript con timestamps. |
+| `reels` | Reels de Ideas Propias | 2 | 6,716 | Guiones de reel con arquitectura 4 tiempos, voz de Daniela con expresiones colombianas. v2 se editó desde el visor. |
+| `carrusel` | Carrusel de Instagram — Repurpose | 1 | 4,177 | 8-10 slides con portada + desarrollo + CTA. 5 patrones de gancho (dato_contundente, contraintuitivo, dolor_directo, promesa_lista, error_senalado). Se usa en el newsletter. |
+| `linkedin` | LinkedIn Posts | 1 | 3,191 | Posts con 5 patrones de hook, estructura hook/desarrollo/cierre, tono intermedio. Se usa tanto en repurpose del episodio como del newsletter. |
 
 ### Protocolos en Notion (NO en el Engine)
-- 📨 Newsletter — JP lo sigue haciendo en Claude directo
+- 📨 Newsletter (protocolo de escritura del artículo) — JP escribe el newsletter en Claude directo. El Engine solo repurposea el artículo terminado
 - 📥 Bandeja de Entrada — futuro
 - 🔍 Investigación — futuro
 - 🧭 Criterio de Curaduría — su contenido relevante ya se absorbió en `adn` y `mapa-angulos`
@@ -616,6 +746,9 @@ Los 7 protocolos están cargados en la tabla `protocolos` de Supabase (insertado
 12. **El drop sobre un contenedor padre no debe gatear su lógica en `dragOverState` del hijo.** El `stopPropagation` del onDrop del hijo ya garantiza exclusividad. Mirar state que pudo quedar desactualizado por un hover viejo lleva a bugs como "el merge se dispara al soltar en espacio vacío".
 13. **Siempre deshabilitar RLS en tablas nuevas de Supabase** con `ALTER TABLE nombre DISABLE ROW LEVEL SECURITY;` inmediatamente después de crearla. Por default Supabase crea tablas con RLS activo y sin políticas, lo que bloquea TODAS las operaciones (insert, select, update, delete) desde la anon key. Todas las tablas del proyecto CMO Engine usan RLS deshabilitado.
 14. **Agregar nuevos directorios de componentes al `content` de `tailwind.config.js`.** Si un archivo `.jsx` vive en un directorio que no está en el array `content`, las clases Tailwind que SOLO aparecen en ese archivo no se generan en el CSS compilado y el layout se rompe silenciosamente (ej: `grid-cols-7` no se aplicaba porque `components/` no estaba en el scan).
+15. **Los Route Handlers `GET` sin parámetros dinámicos se cachean por defecto en Next.js 14 App Router.** Si un endpoint devuelve datos que cambian por fuera del ciclo de request (ej: JP inserta una fila directo en el SQL editor de Supabase), la respuesta cacheada oculta esos cambios. Solución: `export const dynamic = 'force-dynamic'` en el route + `cache: 'no-store'` en el fetch cliente. Le pasó al visor de Protocolos con `medianos` recién agregado.
+16. **`inicio_textual` y `cierre_textual` de los medianos son CITAS TEXTUALES.** El código no debe reformatear, limpiar puntuación, quitar muletillas ni normalizar espacios. El modelo los devuelve tal como aparecen en el transcript y así deben persistirse. Reformatear los rompe como pista para buscar el tramo en Descript.
+17. **Aprendizajes: `POST /api/learnings` guarda `target_protocol_name` pero no `target_protocol_id`.** El circuito de síntesis funciona igual porque agrupa por nombre. La inyección en runtime (`loadProtocol`) y `protocol_history` sí dependen del `target_protocol_id`; si algún día se detecta que el badge de "learnings aprobados" cuenta 0 para todos, revisar si hay un trigger de Supabase que popule el id desde el name — el POST del route no lo hace.
 
 ---
 
@@ -627,7 +760,10 @@ Los 7 protocolos están cargados en la tabla `protocolos` de Supabase (insertado
 - ¿Cada cuántos episodios hacer el "protocol refresh" de consolidar aprendizajes al protocolo base? (Propuesta: 10-15 episodios)
 - ¿Los intros deberían generarse en Fase 2 (junto con títulos) en vez de en Repurpose? Conceptualmente son producción del episodio, no repurpose. Actualmente están en Repurpose por simplicidad de UX.
 - ¿La Parrilla debería integrarse con Buffer/Later/Metricool en una iteración futura, o se queda en flujo manual (JP copia el contenido y publica en cada plataforma)?
-- ¿Newsletter sigue siendo no-generable desde el Fixture o se construye un protocolo de Newsletter para el Engine?
+- ¿Newsletter sigue siendo no-generable desde el Fixture o se construye un protocolo de Newsletter para el Engine? (Nota: el Newsletter YA existe como flujo separado con su propio sidebar y sus fases de `ideas` + `repurpose`; la pregunta abierta es si además se puede disparar generación de newsletter desde una idea del Fixture.)
+- **Medianos:** ¿los medianos desarrollados deberían poder enviarse a la Parrilla (cuando se reactive) como pieza tipo `episodio` o merecen su propio `content_type`?
+- **Medianos:** ¿el "protocol refresh" que consolida aprendizajes a base del protocolo debería contemplar dos cadencias distintas (una para protocolos calientes tipo `medianos` y otra para los estables tipo `adn`)?
+- ¿Es momento de reactivar la Parrilla (flipear `SHOW_PARRILLA`) ahora que Newsletter y Medianos alimentan el pipeline, o esperar a Sprint 4?
 
 ---
 
