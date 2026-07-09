@@ -1,0 +1,337 @@
+# PROGRESS — Integración Descript → CMO Engine
+
+Rama: `feat/descript-integration`
+Referencia: `SPEC-integracion-descript.md`
+
+## Cambios más recientes (presentación + navegación)
+
+### 1) Rediseño de la tarjeta del micro (MinadoTab)
+
+- **Encabezado** = `gancho` del clip. Fallbacks: `frase_iman` → primeras 8
+  palabras de `cita`. **Nunca** se usa `frase_inicio` como título (esa es
+  ancla de corte, va backstage).
+- **Punchline destacada**: si hay `frase_iman` distinta al encabezado, se
+  muestra grande, en italic, con borde naranja a la izquierda — es la
+  "línea que pega".
+- **Apoyo secundario**: `por_que_funciona` con prefijo tenue "Por qué
+  funciona:" y `sugerencia_caption` en italic.
+- **"Ver texto del clip"** (nuevo colapsable): al expandirlo, llama a
+  `GET /api/descript/clip-text?episode_id=..&inicio=..&cierre=..` bajo
+  demanda. Muestra el fragmento verbatim entre las dos anclas. Si el match
+  no fue exacto (fallback progresivo con las primeras N palabras),
+  avisa. No se descarga el SRT entero al cliente — el servidor recorta y
+  devuelve solo el fragmento.
+- **"Ver payload de corte"**: `frase_inicio`, `frase_cierre` y
+  `timestamp` editables (backstage).
+
+**Endpoint `/api/descript/clip-text`**: lee `episodes.transcript_srt`, lo
+pasa a texto plano (quita índices y timestamps del SRT), y localiza las
+anclas con match laxo:
+- normalización (lowercase, sin puntuación, colapsando espacios) con tabla
+  de offsets para mapear de vuelta al texto original;
+- si la frase entera no matchea, intenta con `words[0..N]` decreciente
+  (min 4 palabras) — tolera muletillas al final de la frase.
+- Si nada matchea, devuelve `inicio + " […] " + cierre` (útil para la UI,
+  no un error).
+
+**Cómo probar la tarjeta**:
+1. `npm run dev`, entrar a un episodio que tenga `minado` generado.
+2. En cada tarjeta debería verse: `gancho` como título, `frase_iman` como
+   punchline con borde naranja, y "Por qué funciona: …" abajo.
+3. Click en "ver texto del clip". La primera vez tarda ~200ms (fetch);
+   luego se guarda en memoria. Muestra el texto verbatim entre las dos
+   anclas.
+4. Click en "ver payload de corte" para editar las frases si hicieran
+   falta antes de encolar.
+
+### 2) Links de Descript que aterrizan exacto
+
+- **Por fila**: `linkComposicion` ahora usa `slice(0,5)` del UUID de la
+  composición → `https://web.descript.com/{project_id}/{5chars}`. Esa es
+  la forma que Descript espera en su URL de web.
+- Etiqueta cambiada a **"abrir en Descript ↗"** (antes era solo "abrir").
+- **En el header del panel**, junto a "refrescar", nuevo link **"abrir
+  proyecto en Descript ↗"** a `https://web.descript.com/{project_id}`
+  para ver la tanda completa de composiciones de una.
+
+**Cómo probar los links**:
+1. En un episodio con jobs `done` en el panel: hacer click en "abrir en
+   Descript ↗" de una fila. Debe abrir la composición correspondiente en
+   Descript (no la vista general del proyecto).
+2. En el header del panel, click en "abrir proyecto en Descript ↗". Debe
+   abrir el proyecto entero.
+
+## Cambios anteriores (A–G)
+
+- **A. Botón único en Medianos**: se eliminó la barra "Enviar cortes a Descript"
+  aparte. Ahora el tab Medianos tiene un único CTA "Desarrollar y enviar N a
+  Descript" en la barra sticky global. Al confirmar créditos, corre
+  `medianos-desarrollo` para el paquete y encola las piezas con
+  `inicio_textual`/`cierre_textual` listos. Piezas sin inicio/cierre se
+  saltan (no rompen el flujo). El endpoint `enqueue` **dedupe** por
+  `(episode_id, clip_ref)` con status `queued`/`running`/`done`, así que
+  hacer clic dos veces **no** crea duplicados (cortes en `error` o
+  `cancelled` sí se pueden reencolar).
+
+- **B. Número de episodio real**: `extractEpisodeNumber` en
+  `app/api/descript/jobs/enqueue/route.js` ahora busca `EP\s*N`,
+  `Episodio\s*N`, `Episode\s*N` y (fallback) primer número. Además, si el
+  nombre del episodio no trae número, busca en
+  `ep.descript_composition_name`. Los nombres de composición quedan
+  `MEDIANO_EP4_...` en vez de `MEDIANO_EPX_...`.
+
+- **C. Reintento del "Load failed"**: `apiRetry` en `components/ui.jsx` (2-3
+  intentos con backoff exponencial 500ms → 1s → 2s). Usado en
+  `/api/descript/import` (modal de import) y `/api/descript/jobs/enqueue`
+  (MinadoTab y MedianosTab). No reintenta 4xx no-429 (los errores de
+  negocio se muestran directo).
+
+- **D. Cron de Vercel**: `GET/POST /api/descript/jobs/cron` procesa TODAS
+  las colas pendientes (poll de respaldo de `running` viejos + `processNext`
+  por proyecto). Protegido opcionalmente con `CRON_SECRET`
+  (`Authorization: Bearer <secret>` — Vercel lo manda automáticamente).
+  `vercel.json` corre este endpoint **cada minuto**. La cola avanza aunque
+  el navegador esté cerrado.
+
+- **G. Cancelar pendientes**: `POST /api/descript/jobs/cancel` con
+  `{ episode_id }` o `{ project_id }` pasa a `cancelled` los que están en
+  `queued` (no toca `running`/`done`/`error`). En el panel:
+  - Botón "cancelar pendientes" visible cuando hay `queued > 0`.
+  - Insignia "N cancelado(s)" en el resumen.
+  - Filas `cancelled` con line-through + opacidad + botón "reintentar".
+
+**Cómo probar A–G:**
+
+1. **A y B**: importa un episodio por link cuyo nombre traiga "Episodio 4"
+   (o el episodio ya cargado por JP). Tab Medianos → generar candidatos →
+   marcar 2-3 → CTA "Desarrollar y enviar N a Descript" (con hasDescript).
+   Modal de confirmación de créditos (`~9 * N`). Aceptar. En unos segundos
+   el paquete aparece completo y los cortes empiezan a encolarse. Verificar
+   en Supabase (`select composition_name from descript_jobs`) que los
+   nombres son `MEDIANO_EP{n}_...` con el n real, no `EPX`. Volver a hacer
+   clic con los mismos candidatos → **no aparecen filas nuevas** (dedupe).
+2. **C**: apagar el servidor local, entrar rápido a "Nuevo episodio" y
+   pegar un link. Antes se veía "Load failed"; ahora reintenta hasta 3
+   veces con backoff.
+3. **D**: en el editor SQL de Supabase, dejar un job en `status='queued'`
+   sin usuario abierto. Esperar 60s (cron de Vercel). Al minuto siguiente,
+   el job debería haber pasado a `running` y luego a `done`. Sin desplegar,
+   probar local con:
+   `curl 'http://localhost:3000/api/descript/jobs/cron' -H 'Authorization: Bearer <SI-TIENES-CRON_SECRET>'`
+4. **G**: en el panel, dispara una tanda grande. Cuando queden filas en
+   "en cola", hacer clic en "cancelar pendientes". Todas pasan a
+   `cancelled` (line-through). Las que ya estaban `running` siguen
+   corriendo. Cada cancelado tiene botón "reintentar" para recuperarlo.
+
+## Qué quedó hecho (base — commits anteriores)
+
+### 1. Cliente Descript (server-side)
+- `lib/descript.js`
+  - `listProjects`, `getProject(project_id)`
+  - `exportTranscript({ project_id, format })` — SRT + txt
+  - `createAgentJob({ project_id, prompt, callback_url })`
+  - `getJob(job_id)` para polling de respaldo
+  - Helpers: `parseDescriptLink`, `slugify`, `composicionName` (convención
+    `MICRO_EP{n}_{slug}` / `MEDIANO_EP{n}_{slug}`), `buildCutPrompt`
+  - Todas las llamadas requieren `DESCRIPT_API_TOKEN` (env server-side).
+
+### 2. Import por link
+- `POST /api/descript/import`
+  - Body: `{ descript_link, name?, episode_id? }`
+  - Extrae `project_id` (y `composition_id` si viene) del link.
+  - Trae detalle del proyecto (nombre de la composición madre).
+  - Descarga transcript en **SRT** y **txt** (SPEC §3.3).
+  - Crea (o actualiza) episodio con `transcript`, `transcript_srt`,
+    `descript_project_id`, `descript_composition_id`, `descript_composition_name`.
+- `GET /api/descript/projects` — fallback si no hay link a mano.
+
+### 3. Cola persistente server-side (SPEC §6)
+Todo el estado vive en `descript_jobs`. Sobrevive al cierre del navegador.
+
+- `lib/descript-queue.js`
+  - `enqueueJobs(items)` — inserta filas en `queued`.
+  - `processNext(project_id)` — despacha el **siguiente** queued del proyecto.
+    Usa claim optimista (`update where status=queued`) para evitar doble
+    disparo en carreras. Si Descript rechaza con "job already running",
+    vuelve la fila a queued para reintento.
+  - `completeJob(job_id, {status, descript_composition_id, ai_credits_used, error_message})`.
+  - `pollRunningJob(row)` — poll de respaldo por si el webhook no llega.
+  - `retryJob(job_id)` — reintento manual.
+
+- `POST /api/descript/jobs/enqueue`
+  - Body: `{ episode_id, clips: [{ clip_type, clip_ref, titulo_trabajo, frase_inicio, frase_cierre, rango_inicio?, rango_fin? }] }`
+  - Deduce número de episodio del nombre; arma nombre de composición según convención.
+  - Inserta filas queued, dispara `processNext` (fire-and-forget).
+
+- `POST /api/descript/jobs/process` (y `GET` con `?project_id=`)
+  - Empuja la cola de un proyecto (o todos si no se pasa `project_id`).
+  - Hace poll de respaldo para jobs `running` con más de 3 min sin novedad.
+
+- `POST /api/descript/jobs/webhook`
+  - Callback de Descript. Marca `done`/`error`, guarda
+    `descript_composition_id` y `ai_credits_used`, y dispara `processNext`
+    para encadenar el siguiente clip del mismo project (respeta bloqueo por
+    proyecto).
+
+- `POST /api/descript/jobs/retry` — reencola un job en error/cancelled.
+- `POST /api/descript/jobs/cancel` — pasa a `cancelled` los `queued` de un
+  episodio o proyecto.
+- `GET  /api/descript/jobs/cron` — cron entrypoint (Vercel `* * * * *`);
+  poll de respaldo + `processNext` para todos los proyectos con trabajo.
+- `GET  /api/descript/jobs?episode_id=...` — lista para la UI.
+- `GET  /api/descript/clip-text?episode_id=..&inicio=..&cierre=..` —
+  reconstruye el texto verbatim de un micro-clip desde `transcript_srt`
+  usando match laxo. Se usa desde MinadoTab bajo demanda.
+
+### 4. Generación editorial
+- Fase `minado` en `POST /api/generate` ahora emite por clip:
+  - `gancho`, `frase_inicio`, `frase_cierre` (citas textuales para anclar),
+    `frase_iman`, `duracion_seg`, `categoria`, `dani`, `por_que_funciona`,
+    `sugerencia_caption`, `timestamp`.
+- Fase `medianos-desarrollo` (ya existía): emite `inicio_textual` y
+  `cierre_textual` verbatim → se reusan como anclas al encolar cortes.
+
+### 5. UI (tema claro cálido, naranja, DM Sans, rounded-xl — sin cambios de estética)
+- `components/DescriptImportModal.jsx` — reemplaza al `UploadModal` viejo.
+  Dos vías: **Link de Descript** (auto-import) o **Archivo .txt** (respaldo).
+- `components/DescriptJobsPanel.jsx` — panel de estado por episodio, filtrable
+  por `clip_type`. Refresca cada 4s y empuja `/process` como heartbeat de
+  respaldo si el webhook no llegó. Muestra queued / running / done / error,
+  créditos consumidos, link a la composición terminada, y botón reintentar.
+- `components/DescriptGenerateBar.jsx` — barra sticky con modal de
+  confirmación (`~9 créditos/clip` × N).
+- **MinadoTab** reescrito:
+  - Tarjeta compacta con **gancho + badge + duración + frase-imán +
+    por_que_funciona + caption**. Las frases de corte y el timestamp van a un
+    panel "payload de corte" colapsable (SPEC §7).
+  - Checkbox por clip + barra sticky "Generar en Descript".
+- **MedianosTab**:
+  - Acepta como fuente válida de timestamps un episodio con
+    `descript_project_id` (además del regex sobre transcript).
+  - Panel de cola arriba (filtrado a `clip_type='mediano'`).
+  - Después del desarrollo, barra sticky "Enviar cortes a Descript" que
+    encola todos los medianos con inicio/cierre textuales presentes.
+
+## Cómo probarlo
+
+### Precondiciones
+1. `DESCRIPT_API_TOKEN` en `.env.local` (y en Vercel para producción, cuando
+   sea el momento).
+2. `NEXT_PUBLIC_SITE_URL` en `.env.local` apuntando a la URL pública del
+   servidor (necesario para el webhook). Alternativa: `SITE_URL` o `VERCEL_URL`.
+3. La migración de Supabase de la SPEC §4 ya está aplicada
+   (columnas nuevas en `episodes` + tabla `descript_jobs`).
+4. Opcional: `CRON_SECRET` (Vercel lo maneja automáticamente para su cron).
+   Si está seteado, el endpoint `/api/descript/jobs/cron` exige
+   `Authorization: Bearer <CRON_SECRET>`. Si no, cualquiera lo puede llamar
+   (útil para dev local).
+
+### Camino feliz — micros
+1. `npm run dev`, abrir la app.
+2. "+ Nuevo episodio" → tab **Link de Descript** → pegar link del proyecto en Descript.
+3. La app importa transcript, crea el episodio y arranca la Fase 1 (mapa + 20 ángulos).
+4. Seleccionar ángulos → generar contenido → tab **Minado**.
+5. Marcar 3-4 clips con checkbox. Click "Generar N en Descript". Confirmar créditos.
+6. El panel de la cola aparece arriba: se ve `1 cortando` + `3 en cola`.
+7. Cerrar la pestaña. Volver a abrirla, entrar al episodio, ir a **Minado**:
+   el estado sigue actualizándose (fuente de verdad = `descript_jobs`).
+8. Cuando termina, el panel muestra `listo ✓` con link a la composición
+   dentro del proyecto de Descript.
+
+### Camino feliz — medianos
+1. En un episodio ya vinculado a Descript, ir a tab **Medianos**.
+2. "Generar candidatos de contenido mediano" → seleccionar → "Desarrollar N mediano(s)".
+3. Cada mediano trae `inicio_textual` y `cierre_textual` (citas verbatim).
+4. Barra sticky "Enviar cortes a Descript" → confirmar.
+5. La cola procesa en fila (SPEC §3.5): 1 job por proyecto a la vez.
+
+### Reintento
+- Si un clip queda en `error`, aparece un botón "reintentar" en el panel.
+- El clip vuelve a `queued` y `processNext` lo despacha en cuanto haya cupo.
+
+### Webhook local
+- Descript necesita una URL pública para el callback. Local: usar `ngrok`
+  (`ngrok http 3000`) y setear `NEXT_PUBLIC_SITE_URL=https://xxx.ngrok.app`.
+- Sin webhook público, el sistema **igual funciona** porque
+  `/api/descript/jobs/process` hace poll de respaldo cada vez que el panel
+  refresca (cada 4s) y detecta `running` viejos → los consulta con `GET /jobs/{id}`.
+
+## Verificación de la SPEC
+
+- [x] Pegar link de Descript importa transcript sin subir .txt.
+- [x] Micros aparecen con frase de inicio/cierre y se cortan con "Generar en Descript".
+- [x] Medianos: embudo de 2 etapas; "Enviar cortes a Descript" encola con un clic.
+- [x] La composición madre nunca se modifica (prompt lo prohíbe explícitamente).
+- [x] Buffer "un poquito suelto" incluido en el prompt.
+- [x] Cerrar pestaña y volver: estado por clip persiste (fuente = Supabase).
+- [x] Descartes/ediciones alimentan `minado` y `medianos` learnings (ya existía).
+- [x] Confirmación con estimado de créditos.
+- [x] Nombres siguen `MICRO_EP{n}_` / `MEDIANO_EP{n}_`.
+- [x] Cola secuencial por project (SPEC §3.5) — claim optimista + reintento
+      automático si Descript devuelve "already running".
+- [x] `npm run build` pasa sin errores.
+
+## Qué quedó pendiente / notas
+
+- **Descarte con motivo → learning**: los tabs ya soportan feedback textual que
+  crea learnings (mecanismo pre-existente); no hay UI de "✗ Descartar con
+  motivo" separada del feedback inline. Si JP la quiere explícita como en la
+  SPEC §5.2/§5.3, es un extra chico encima del sistema de learnings actual.
+- **Configuración del webhook**: la URL pública tiene que llegar al backend
+  por `NEXT_PUBLIC_SITE_URL` (o `VERCEL_URL` automático en Vercel). Si nada
+  está seteado, no se manda `callback_url` a Descript y todo depende del
+  fallback de polling (funciona pero es menos reactivo).
+- ~~**Cancelar un job en cola / abortar tanda**~~: **hecho** con
+  `POST /api/descript/jobs/cancel` + botón "cancelar pendientes" en el
+  panel. Los `running` no se pueden cortar desde acá (habría que llamar a
+  Descript directamente); si se necesita, agregar en un futuro.
+- **`supabase-migration-descript-fix.sql`** apareció en el repo por edición
+  externa (hook/linter). **No lo corrí yo** (respeté la instrucción de no
+  tocar Supabase). Contiene `ALTER TABLE ... IF NOT EXISTS` idempotentes; si
+  después de correr la migración inicial faltan columnas
+  (`descript_composition_name`, `descript_project_id`, `prompt`, `meta`,
+  `started_at`, `completed_at`, `descript_response`), aplicarlo desde el
+  editor SQL de Supabase. Si la migración inicial ya trajo todo, es un no-op.
+- **Tests**: no incluidos (la app no tenía suite previa; agregar tests unitarios
+  de `lib/descript.js` y `lib/descript-queue.js` es lo que más rendiría).
+- **Contrato del webhook de Descript**: el handler acepta varias formas del
+  payload (`{ job_id, status, ... }` y `{ data: { ... } }`) porque la SPEC no
+  fija el shape exacto. Cuando llegue el primer webhook real puede que haga
+  falta ajustar el mapping — el body queda guardado íntegro en
+  `descript_jobs.descript_response` para debugging.
+- **Créditos por clip en la barra**: hardcoded a 9 (rango observado 7-10 en
+  SPEC §9.3). Si aparece un ajuste, cambiar el default de
+  `DescriptGenerateBar.creditosPorClip`.
+- **`app/api/generate/route.js` fase `minado`**: los campos `gancho`,
+  `frase_iman` y las frases de inicio/cierre son ahora parte del contrato del
+  modelo. Si el protocolo `minado` en Supabase no está actualizado a v2, el
+  modelo puede seguir devolviendo el shape viejo — la UI tolera ambos casos.
+
+## Comandos útiles
+
+```bash
+# Build
+npm run build
+
+# Dev
+npm run dev
+
+# Ver los jobs de un episodio (dev)
+curl 'http://localhost:3000/api/descript/jobs?episode_id=<uuid>'
+
+# Cancelar todos los queued de un episodio
+curl -X POST -H 'content-type: application/json' \
+  -d '{"episode_id":"<uuid>"}' \
+  http://localhost:3000/api/descript/jobs/cancel
+
+# Ejecutar el cron manualmente (sin CRON_SECRET)
+curl 'http://localhost:3000/api/descript/jobs/cron'
+# Con CRON_SECRET:
+curl -H 'Authorization: Bearer <CRON_SECRET>' \
+  'http://localhost:3000/api/descript/jobs/cron'
+
+# Empujar cola manualmente
+curl -X POST -H 'content-type: application/json' \
+  -d '{"project_id":"<uuid>"}' \
+  http://localhost:3000/api/descript/jobs/process
+```
