@@ -110,7 +110,7 @@ export default function DescriptJobsPanel({ episodeId, projectId, filterClipType
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3 flex-wrap">
           {hasPending && (
             <button
               onClick={cancelPending}
@@ -121,6 +121,17 @@ export default function DescriptJobsPanel({ episodeId, projectId, filterClipType
               {cancelling ? <Loader2 size={10} className="animate-spin" /> : <Ban size={10} />}
               cancelar pendientes
             </button>
+          )}
+          {projectId && (
+            <a
+              href={`https://web.descript.com/${projectId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] text-orange-600 hover:underline flex items-center gap-0.5"
+              title="Ver todas las composiciones del proyecto en Descript"
+            >
+              abrir proyecto en Descript <ExternalLink size={10} />
+            </a>
           )}
           <button onClick={load} className="text-[11px] text-stone-400 hover:text-orange-600 flex items-center gap-1">
             <RefreshCw size={10} /> refrescar
@@ -156,8 +167,14 @@ function JobRow({ job, projectId, onChange }) {
     cancelled: <span className="flex items-center gap-1 text-[11px] text-stone-400"><Ban size={11} /> cancelado</span>,
   }[job.status] || null;
 
-  const linkComposicion = projectId && job.descript_composition_id
-    ? `https://web.descript.com/${projectId}/${job.descript_composition_id}`
+  // Descript en web usa un id corto de 5 chars (no el UUID) para aterrizar en
+  // una composición específica. Si tenemos el composition_id (UUID),
+  // recortamos a los primeros 5 caracteres. Si no, link al proyecto.
+  const shortId = job.descript_composition_id
+    ? String(job.descript_composition_id).slice(0, 5)
+    : null;
+  const linkComposicion = projectId && shortId
+    ? `https://web.descript.com/${projectId}/${shortId}`
     : projectId
       ? `https://web.descript.com/${projectId}`
       : null;
@@ -182,8 +199,9 @@ function JobRow({ job, projectId, onChange }) {
         )}
         {job.status === "done" && linkComposicion && (
           <a href={linkComposicion} target="_blank" rel="noreferrer"
-             className="text-[11px] text-orange-600 hover:underline flex items-center gap-0.5">
-            abrir <ExternalLink size={10} />
+             className="text-[11px] text-orange-600 hover:underline flex items-center gap-0.5"
+             title="Abrir esta composición en Descript">
+            abrir en Descript <ExternalLink size={10} />
           </a>
         )}
         {(job.status === "error" || job.status === "cancelled") && (

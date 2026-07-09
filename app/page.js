@@ -769,6 +769,154 @@ function IntrosTab({ ep, onUpdate, onLearn }) {
   </div>;
 }
 
+// ═══ TARJETA DE UN MICRO ═══
+// Encabezado = gancho (fallback frase_iman > primeras palabras). NUNCA se
+// usa frase_inicio como título — esa va al panel "payload de corte" backstage.
+// La punchline (frase_iman) se muestra grande y destacada.
+// Dos colapsables:
+//   - "ver texto del clip": fetch on-demand a /api/descript/clip-text
+//     (solo cuando el usuario expande — no bajamos SRT completo al cliente)
+//   - "ver payload de corte": inicio/cierre/timestamp editables (backstage)
+function MicroCard({ m, i, episodeId, isSel, hasDescript, toggleSel, feedback, setFeedback, updateMomento, bankPayload }) {
+  const [showPayload, setShowPayload] = useState(false);
+  const [showText, setShowText] = useState(false);
+  const [clipText, setClipText] = useState(null);
+  const [loadingText, setLoadingText] = useState(false);
+
+  const cita = m.cita || "";
+  const inicio = m.frase_inicio || cita;
+  const cierre = m.frase_cierre || cita;
+  const words = cita.trim().split(/\s+/);
+  const fallbackShort = words.slice(0, 8).join(" ") + (words.length > 8 ? "…" : "");
+  const heading = (m.gancho && m.gancho.trim()) || (m.frase_iman && m.frase_iman.trim()) || fallbackShort;
+  const punchline = m.frase_iman && m.frase_iman.trim();
+  const punchlineIsRedundant = punchline && heading && punchline.trim() === heading.trim();
+
+  const loadClipText = async () => {
+    if (clipText || loadingText || !episodeId) return;
+    setLoadingText(true);
+    try {
+      const qs = new URLSearchParams({
+        episode_id: episodeId,
+        inicio: inicio || "",
+        cierre: cierre || "",
+      });
+      const r = await api(`/api/descript/clip-text?${qs.toString()}`);
+      if (r?.text) setClipText({ text: r.text, matched: !!r.matched });
+      else setClipText({ text: r?.error || "No pude reconstruir el clip.", matched: false, err: true });
+    } catch (e) {
+      setClipText({ text: e.message || String(e), matched: false, err: true });
+    } finally {
+      setLoadingText(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border p-3.5 transition-all"
+         style={{ borderColor: isSel ? O : "#E7E5E4", background: isSel ? OL : "white" }}>
+      <div className="flex items-start gap-3">
+        {hasDescript && (
+          <button onClick={() => toggleSel(i)}
+                  className="mt-1 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0"
+                  style={{ borderColor: isSel ? O : "#D6D3D1", background: isSel ? O : "white" }}>
+            {isSel && <Check size={12} color="white" strokeWidth={3} />}
+          </button>
+        )}
+        <div className="flex-1 min-w-0">
+          {/* Encabezado: gancho (o fallback) + badge + DANI + duración */}
+          <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <p className="text-sm font-semibold text-stone-800">{heading}</p>
+            <Badge label={m.categoria} />
+            {m.dani && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-50 text-pink-600">+DANI</span>}
+            {m.duracion_seg && <span className="text-[10px] text-stone-400">~{m.duracion_seg}s</span>}
+          </div>
+
+          {/* Punchline (frase_iman): la "línea que pega". Destacada. */}
+          {punchline && !punchlineIsRedundant && (
+            <div className="relative pl-3 mb-2" style={{ borderLeft: `3px solid ${O}` }}>
+              <p className="text-[14px] leading-snug italic text-stone-800">&ldquo;{punchline}&rdquo;</p>
+            </div>
+          )}
+
+          {/* Apoyo secundario */}
+          {m.por_que_funciona && (
+            <p className="text-[11px] text-stone-500 leading-relaxed mb-1">
+              <span className="text-stone-400">Por qué funciona:</span> {m.por_que_funciona}
+            </p>
+          )}
+          {m.sugerencia_caption && (
+            <p className="text-[11px] text-stone-400 italic leading-relaxed">
+              Caption: {m.sugerencia_caption}
+            </p>
+          )}
+
+          {/* Colapsables backstage */}
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            <button onClick={() => { const next = !showText; setShowText(next); if (next) loadClipText(); }}
+                    className="text-[10px] text-stone-400 hover:text-orange-600 flex items-center gap-1">
+              {showText ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              {showText ? "ocultar" : "ver"} texto del clip
+            </button>
+            <button onClick={() => setShowPayload(v => !v)}
+                    className="text-[10px] text-stone-400 hover:text-orange-600 flex items-center gap-1">
+              {showPayload ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+              {showPayload ? "ocultar" : "ver"} payload de corte
+            </button>
+          </div>
+
+          {showText && (
+            <div className="mt-2 rounded-lg bg-stone-50 p-3 border border-stone-100">
+              <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1.5">Texto del clip (verbatim)</p>
+              {loadingText ? (
+                <div className="flex items-center gap-2 text-[11px] text-stone-400">
+                  <Loader2 size={11} className="animate-spin" /> reconstruyendo desde el SRT...
+                </div>
+              ) : clipText ? (
+                <>
+                  <p className={`text-[13px] leading-relaxed whitespace-pre-wrap ${clipText.err ? "text-red-500" : "text-stone-700"}`}>
+                    {clipText.text}
+                  </p>
+                  {!clipText.matched && !clipText.err && (
+                    <p className="text-[10px] text-amber-600 mt-1.5">
+                      No pude anclar las dos frases en el SRT; se muestra inicio […] cierre como aproximación.
+                    </p>
+                  )}
+                </>
+              ) : null}
+            </div>
+          )}
+
+          {showPayload && (
+            <div className="mt-2 space-y-1.5 rounded-lg bg-stone-50 p-2.5 border border-stone-100">
+              <div>
+                <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase inicio</span>
+                <EditableText text={inicio} multiline onSave={v => updateMomento({ frase_inicio: v })} />
+              </div>
+              <div>
+                <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase cierre</span>
+                <EditableText text={cierre} multiline onSave={v => updateMomento({ frase_cierre: v })} />
+              </div>
+              <div className="text-[10px] text-stone-400">timestamp ref: {m.timestamp || "—"}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Acciones a la derecha */}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          <CopyBtn text={punchline || cita} />
+          <BankBtn payload={bankPayload} />
+        </div>
+      </div>
+
+      <div className="mt-2 ml-8">
+        <input value={feedback} onChange={e => setFeedback(e.target.value)}
+               placeholder="Feedback..."
+               className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300" />
+      </div>
+    </div>
+  );
+}
+
 // ═══ TAB: MINADO ═══
 // Curación de micros + integración Descript. Cada clip trae frase_inicio / frase_cierre
 // (payload de corte, oculto por defecto). El "gancho" es lo que domina la tarjeta;
@@ -779,7 +927,6 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
   const momentos = minado?.momentos || minado || [];
   const [fb, setFb] = useState({}); const [applying, setApplying] = useState(false); const [applied, setApplied] = useState(false);
   const [selected, setSelected] = useState({}); // { [i]: bool }
-  const [showPayload, setShowPayload] = useState({}); // { [i]: bool } expandir frases de corte
 
   const hasDescript = !!ep.descript_project_id;
 
@@ -854,70 +1001,33 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
           ? "Marca los que quieras cortar y confirma abajo. La cola vive en el servidor: puedes cerrar y volver."
           : "Cada clip funciona solo, sin contexto, como pieza independiente en el feed."}
       </p>
-      <div className="space-y-2">{momentos.map((m, i) => {
-        const isSel = !!selected[i];
-        const gancho = m.gancho || (m.cita || "").slice(0, 60);
-        const dur = m.duracion_seg;
-        return (
-          <div key={i} className="rounded-xl border p-3.5 transition-all"
-               style={{ borderColor: isSel ? O : "#E7E5E4", background: isSel ? OL : "white" }}>
-            <div className="flex items-start gap-3">
-              {hasDescript && (
-                <button onClick={() => toggleSel(i)}
-                        className="mt-1 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0"
-                        style={{ borderColor: isSel ? O : "#D6D3D1", background: isSel ? O : "white" }}>
-                  {isSel && <Check size={12} color="white" strokeWidth={3} />}
-                </button>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <p className="text-sm font-medium text-stone-800">{gancho}</p>
-                  <Badge label={m.categoria} />
-                  {m.dani && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-50 text-pink-600">+DANI</span>}
-                  {dur && <span className="text-[10px] text-stone-400">~{dur}s</span>}
-                </div>
-                {m.frase_iman && <p className="text-[13px] text-stone-600 italic mb-1">&ldquo;{m.frase_iman}&rdquo;</p>}
-                {m.por_que_funciona && <p className="text-[11px] text-stone-500 mb-1">{m.por_que_funciona}</p>}
-                {m.sugerencia_caption && <p className="text-[11px] text-stone-400 italic">Caption: {m.sugerencia_caption}</p>}
-                <button onClick={() => setShowPayload(p => ({ ...p, [i]: !p[i] }))}
-                        className="text-[10px] text-stone-400 hover:text-orange-600 mt-1.5">
-                  {showPayload[i] ? "ocultar" : "ver"} payload de corte
-                </button>
-                {showPayload[i] && (
-                  <div className="mt-2 space-y-1.5 rounded-lg bg-stone-50 p-2.5 border border-stone-100">
-                    <div>
-                      <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase inicio</span>
-                      <EditableText text={m.frase_inicio || m.cita || ""} multiline
-                        onSave={v => {
-                          const n = [...momentos]; n[i] = { ...n[i], frase_inicio: v };
-                          onUpdate({ minado: minado?.voz_en_off ? { ...minado, momentos: n } : n });
-                        }} />
-                    </div>
-                    <div>
-                      <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase cierre</span>
-                      <EditableText text={m.frase_cierre || m.cita || ""} multiline
-                        onSave={v => {
-                          const n = [...momentos]; n[i] = { ...n[i], frase_cierre: v };
-                          onUpdate({ minado: minado?.voz_en_off ? { ...minado, momentos: n } : n });
-                        }} />
-                    </div>
-                    <div className="text-[10px] text-stone-400">timestamp ref: {m.timestamp}</div>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
-                <CopyBtn text={m.cita} />
-                <BankBtn payload={{ title: gancho.slice(0, 80), description: m.por_que_funciona, notes: m.cita, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} />
-              </div>
-            </div>
-            <div className="mt-2 ml-8">
-              <input value={fb[i] || ""} onChange={e => setFb({ ...fb, [i]: e.target.value })}
-                     placeholder="Feedback..."
-                     className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300" />
-            </div>
-          </div>
-        );
-      })}</div>
+      <div className="space-y-2">{momentos.map((m, i) => (
+        <MicroCard
+          key={i}
+          m={m}
+          i={i}
+          episodeId={ep.id}
+          isSel={!!selected[i]}
+          hasDescript={hasDescript}
+          toggleSel={toggleSel}
+          feedback={fb[i] || ""}
+          setFeedback={v => setFb({ ...fb, [i]: v })}
+          updateMomento={(patch) => {
+            const n = [...momentos]; n[i] = { ...n[i], ...patch };
+            onUpdate({ minado: minado?.voz_en_off ? { ...minado, momentos: n } : n });
+          }}
+          bankPayload={{
+            title: (m.gancho || m.frase_iman || m.cita || '').slice(0, 80),
+            description: m.por_que_funciona,
+            notes: m.cita,
+            category: 'undecided',
+            temperature: 'cold',
+            origin_type: 'episode',
+            origin_id: ep.id,
+            origin_url: ep.name,
+          }}
+        />
+      ))}</div>
       <ApplyBar feedbacks={fb} onApply={applyFb} applying={applying} applied={applied} />
     </div>
 
