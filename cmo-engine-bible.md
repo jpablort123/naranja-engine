@@ -1,6 +1,6 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 7 Julio 2026
+### Última actualización: 9 Julio 2026
 
 ---
 
@@ -27,13 +27,18 @@ Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranj
 - `ANTHROPIC_API_KEY`
 - `NEXT_PUBLIC_SUPABASE_URL` = `https://vuujvuyxvsbcewbpdgae.supabase.co`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = la anon key del proyecto cmo-engine
+- `DESCRIPT_API_TOKEN` = token de la API de Descript (Production + Preview). Atado a un solo Drive de Descript
+- `NEXT_PUBLIC_SITE_URL` = `https://naranja-engine.vercel.app` (solo Production) — URL pública para el webhook de Descript
+- `CRON_SECRET` = secreto que protege el endpoint del cron; Vercel lo manda como `Authorization: Bearer` al disparar el cron (solo Production)
 
 ---
 
 ## 3. TABLAS DE SUPABASE (ya creadas)
 
 ```sql
-episodes (id UUID PK, name TEXT, transcript TEXT, mapa JSONB, titulos JSONB, descripcion_spotify TEXT, descripcion_youtube TEXT, thumbnails JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, minado JSONB, medianos_candidatos JSONB, medianos_seleccionados JSONB, medianos JSONB, status TEXT, created_at, updated_at)
+episodes (id UUID PK, name TEXT, transcript TEXT, transcript_srt TEXT, mapa JSONB, titulos JSONB, descripcion_spotify TEXT, descripcion_youtube TEXT, thumbnails JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, minado JSONB, medianos_candidatos JSONB, medianos_seleccionados JSONB, medianos JSONB, descript_project_id TEXT, descript_composition_id TEXT, descript_composition_name TEXT, status TEXT, created_at, updated_at)
+
+descript_jobs (id UUID PK, episode_id UUID FK, descript_project_id TEXT, clip_type TEXT, clip_ref TEXT, composition_name TEXT, prompt TEXT, meta JSONB, descript_job_id TEXT, descript_composition_id TEXT, descript_response JSONB, status TEXT, error_message TEXT, ai_credits_used INTEGER, started_at, completed_at, created_at, updated_at)
 
 newsletters (id UUID PK, name TEXT, articulo TEXT, resumen JSONB, ideas JSONB, selected_ideas JSONB, repurpose_content JSONB, status TEXT, created_at, updated_at)
 
@@ -57,6 +62,9 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 - `episodes.medianos_candidatos` → array de candidatos propuestos por la Fase A del sprint Medianos (título de trabajo, rango, duración, tipo de ángulo, razón, ángulos_relacionados)
 - `episodes.medianos_seleccionados` → array de ids de los candidatos que JP aprobó para desarrollar
 - `episodes.medianos` → array de piezas desarrolladas por la Fase B: cada una con rango, duración, tipo, inicio_textual, cierre_textual, 5 títulos, descripcion_youtube y 3 conceptos de thumbnail
+- `episodes.transcript_srt` → transcript en formato SRT (con timestamps verbatim) que baja el import de Descript; es la fuente para anclar cortes y para "ver texto del clip". `episodes.transcript` sigue siendo el texto plano que consumen las fases de generación
+- `episodes.descript_project_id` / `descript_composition_id` / `descript_composition_name` → identifican el proyecto y la composición madre (el episodio completo) en Descript, para poder cortar sobre ellos
+- `descript_jobs` → una fila por corte enviado a Descript. Es la cola persistente (ver sección Sprint Descript). `status`: `'queued' | 'running' | 'done' | 'error' | 'cancelled'`. `clip_type`: `'micro' | 'mediano'`. `prompt` guarda la instrucción exacta al agente; `meta` guarda título/rango; `descript_response` guarda el payload crudo de Descript para debug
 - `newsletters.articulo` → texto completo del artículo escrito por el autor (JP no lo reescribe; solo lo repurposea). Se puede subir en `.txt`, `.md` o `.docx`
 - `newsletters.resumen` → mapa "plomería silenciosa" del artículo (tesis, datos_duros, ideas_clave, tensiones, frases, conexiones). No se muestra al usuario, alimenta las llamadas siguientes
 - `newsletters.ideas` → lista de ideas validables extraídas del artículo (fase `ideas`)
@@ -197,6 +205,19 @@ La app está desplegada en Vercel con el flujo completo de ángulos + revisión 
 - **Reglas duras reforzadas en el prompt:** `rango_inicio` siempre temporalmente anterior a `rango_fin`; `duracion_estimada_min` corresponde al rango real; `inicio_textual` y `cierre_textual` son **citas textuales exactas** del transcript (el código no las reformatea ni las limpia al guardar).
 - **Circuito de aprendizaje conectado:** cada feedback en una pieza mediana crea un `learning` con `target_protocol_name = 'medianos'`, entra al flujo genérico de síntesis (`/api/learnings/synthesize` agrupa por `target_protocol_name`), pasa por aprobación (`/api/learnings/batch`) y se inyecta en la próxima Fase A o Fase B como el resto de los protocolos.
 - **Fix colateral en el visor de Protocolos:** `export const dynamic = 'force-dynamic'` + `.limit(50)` en `GET /api/protocolos` y `cache: 'no-store'` en el fetch cliente — para que la lista siempre refleje Supabase (antes Next.js podía cachear la respuesta y ocultar protocolos agregados a mano en el editor SQL).
+
+### Integración Descript (9 Julio 2026 — COMPLETO, en producción)
+Automatiza el corte de clips (micros y medianos) directamente sobre el episodio madre que JP carga manualmente en Descript, vía la API REST de Descript (`descriptapi.com/v1`). Reemplaza el trabajo manual de buscar con Ctrl+F, seleccionar y duplicar a una composición nueva (1-2 horas por episodio).
+
+- **Principio de arquitectura:** el Engine es el cerebro (genera todo el contenido editorial con Anthropic + protocolos); Descript es (a) la fuente del transcript con timestamps y (b) el ejecutor de los cortes. Descript NO genera contenido editorial.
+- **Import por link** (`POST /api/descript/import`): JP pega el link del episodio en Descript; el Engine extrae `project_id`, baja el transcript en SRT (`transcript_srt`, con timestamps) y en texto plano (`transcript`), y guarda `descript_project_id/composition_id/composition_name`. Ya no hace falta subir el `.txt` a mano (sigue disponible como respaldo). `GET /api/descript/projects` es el fallback para buscar por nombre.
+- **Cortes vía el agente de Descript** (`POST /jobs/agent`): a cada corte se le da la frase de inicio y la de cierre (verbatim) y crea una composición nueva `MICRO_EP{n}_{slug}` / `MEDIANO_EP{n}_{slug}` con solo ese tramo, dejando el episodio original intacto. Se le pide arrancar/terminar ~2s "suelto" (la editora ajusta después). ~7-10 créditos de IA por corte, ~40s cada uno; cortar no consume media minutes.
+- **Cola persistente server-side** (`descript_jobs`, `lib/descript-queue.js`): al dar "Generar en Descript" se insertan filas `queued`; el procesador las despacha **de a una por proyecto** — regla dura: Descript rechaza un segundo `POST /jobs/agent` sobre el mismo proyecto si hay uno corriendo, así que la cola se serializa por `project_id`. El estado vive en Supabase → JP puede cerrar el navegador y volver. Dedupe por `(episode_id, clip_ref)` evita cortes duplicados al reenviar.
+- **Avance de la cola (tres mecanismos, mismo poll de respaldo):** (1) webhook `POST /api/descript/jobs/webhook` que Descript llama al terminar (solo funciona en producción; la URL de preview está protegida); (2) heartbeat del panel a `/api/descript/jobs/process` cada 4s mientras la pestaña esté abierta; (3) cron de Vercel `/api/descript/jobs/cron` cada minuto (`vercel.json`) que empuja todas las colas aunque el navegador esté cerrado — esto habilita el "mando cortes y cierro el computador".
+- **Micros (Minado) — una etapa:** aparecen los 15-20 micros ya generados (protocolo `minado` v2); JP marca cuáles y da "Generar en Descript". La tarjeta encabeza con el `gancho` (no la frase cruda truncada), muestra la `frase_iman` como punchline, y trae dos colapsables: "ver texto del clip" (`GET /api/descript/clip-text` extrae el tramo verbatim del SRT bajo demanda, con match laxo) y "ver payload de corte" (las anclas backstage).
+- **Medianos — dos etapas + un botón:** candidatos automáticos (Fase A) → JP selecciona favoritos → un solo botón "Desarrollar y enviar N a Descript" que desarrolla el paquete completo (Fase B) y encola los cortes en paralelo, con modal de confirmación de créditos.
+- **Panel de cola** (`DescriptJobsPanel.jsx`) por episodio: estado por clip (en cola / cortando / listo / error / cancelado) con créditos, "abrir en Descript ↗" (usa el id corto de 5 caracteres para aterrizar en el clip exacto), "abrir proyecto en Descript ↗", "reintentar" y "cancelar pendientes" (`POST /api/descript/jobs/cancel`, solo toca `queued`).
+- **Nota cosmética:** los medianos cortados antes del arreglo de detección de número de episodio dicen "EPX" en vez de "EP{n}". Los nuevos ya salen bien (toma el número de `descript_composition_name`, ej. "CMO Latam - Episodio4" → EP4).
 
 ### Mejoras puntuales (17 Junio 2026)
 - **Modelo de Anthropic actualizado a `claude-sonnet-4-6`** (antes `claude-sonnet-4-20250514`, que dejó de ser válido y rompía `/api/generate` en producción). Cambiado en `lib/generation.js` y `app/api/learnings/synthesize/route.js`.
