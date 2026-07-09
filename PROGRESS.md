@@ -3,7 +3,65 @@
 Rama: `feat/descript-integration`
 Referencia: `SPEC-integracion-descript.md`
 
-## Cambios más recientes (A–G)
+## Cambios más recientes (presentación + navegación)
+
+### 1) Rediseño de la tarjeta del micro (MinadoTab)
+
+- **Encabezado** = `gancho` del clip. Fallbacks: `frase_iman` → primeras 8
+  palabras de `cita`. **Nunca** se usa `frase_inicio` como título (esa es
+  ancla de corte, va backstage).
+- **Punchline destacada**: si hay `frase_iman` distinta al encabezado, se
+  muestra grande, en italic, con borde naranja a la izquierda — es la
+  "línea que pega".
+- **Apoyo secundario**: `por_que_funciona` con prefijo tenue "Por qué
+  funciona:" y `sugerencia_caption` en italic.
+- **"Ver texto del clip"** (nuevo colapsable): al expandirlo, llama a
+  `GET /api/descript/clip-text?episode_id=..&inicio=..&cierre=..` bajo
+  demanda. Muestra el fragmento verbatim entre las dos anclas. Si el match
+  no fue exacto (fallback progresivo con las primeras N palabras),
+  avisa. No se descarga el SRT entero al cliente — el servidor recorta y
+  devuelve solo el fragmento.
+- **"Ver payload de corte"**: `frase_inicio`, `frase_cierre` y
+  `timestamp` editables (backstage).
+
+**Endpoint `/api/descript/clip-text`**: lee `episodes.transcript_srt`, lo
+pasa a texto plano (quita índices y timestamps del SRT), y localiza las
+anclas con match laxo:
+- normalización (lowercase, sin puntuación, colapsando espacios) con tabla
+  de offsets para mapear de vuelta al texto original;
+- si la frase entera no matchea, intenta con `words[0..N]` decreciente
+  (min 4 palabras) — tolera muletillas al final de la frase.
+- Si nada matchea, devuelve `inicio + " […] " + cierre` (útil para la UI,
+  no un error).
+
+**Cómo probar la tarjeta**:
+1. `npm run dev`, entrar a un episodio que tenga `minado` generado.
+2. En cada tarjeta debería verse: `gancho` como título, `frase_iman` como
+   punchline con borde naranja, y "Por qué funciona: …" abajo.
+3. Click en "ver texto del clip". La primera vez tarda ~200ms (fetch);
+   luego se guarda en memoria. Muestra el texto verbatim entre las dos
+   anclas.
+4. Click en "ver payload de corte" para editar las frases si hicieran
+   falta antes de encolar.
+
+### 2) Links de Descript que aterrizan exacto
+
+- **Por fila**: `linkComposicion` ahora usa `slice(0,5)` del UUID de la
+  composición → `https://web.descript.com/{project_id}/{5chars}`. Esa es
+  la forma que Descript espera en su URL de web.
+- Etiqueta cambiada a **"abrir en Descript ↗"** (antes era solo "abrir").
+- **En el header del panel**, junto a "refrescar", nuevo link **"abrir
+  proyecto en Descript ↗"** a `https://web.descript.com/{project_id}`
+  para ver la tanda completa de composiciones de una.
+
+**Cómo probar los links**:
+1. En un episodio con jobs `done` en el panel: hacer click en "abrir en
+   Descript ↗" de una fila. Debe abrir la composición correspondiente en
+   Descript (no la vista general del proyecto).
+2. En el header del panel, click en "abrir proyecto en Descript ↗". Debe
+   abrir el proyecto entero.
+
+## Cambios anteriores (A–G)
 
 - **A. Botón único en Medianos**: se eliminó la barra "Enviar cortes a Descript"
   aparte. Ahora el tab Medianos tiene un único CTA "Desarrollar y enviar N a
@@ -121,6 +179,9 @@ Todo el estado vive en `descript_jobs`. Sobrevive al cierre del navegador.
 - `GET  /api/descript/jobs/cron` — cron entrypoint (Vercel `* * * * *`);
   poll de respaldo + `processNext` para todos los proyectos con trabajo.
 - `GET  /api/descript/jobs?episode_id=...` — lista para la UI.
+- `GET  /api/descript/clip-text?episode_id=..&inicio=..&cierre=..` —
+  reconstruye el texto verbatim de un micro-clip desde `transcript_srt`
+  usando match laxo. Se usa desde MinadoTab bajo demanda.
 
 ### 4. Generación editorial
 - Fase `minado` en `POST /api/generate` ahora emite por clip:
