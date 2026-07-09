@@ -87,9 +87,9 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 
 ---
 
-## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.6)
+## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.7)
 
-La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios).
+La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios) + Integración Descript (cortes automáticos de micros y medianos sobre el episodio madre).
 
 ### Lo que tiene y funciona (Sprint 1 COMPLETO)
 - Sidebar oscuro con lista de episodios + botón "Nuevo episodio"
@@ -403,7 +403,7 @@ Automatiza el corte de clips (micros y medianos) directamente sobre el episodio 
 - Medianos aparece SIEMPRE en el tab bar; si el transcript no tiene timestamps, el contenido del tab muestra el mensaje explicativo en vez del botón de generar
 - En sidebar: **Inicio · Podcast (expandible) · Newsletter (expandible) · Fixture · Protocolos · Aprendizajes** (con badge naranja de drafts). Parrilla está oculta por feature flag (`SHOW_PARRILLA = false`)
 
-### Estructura de archivos (v0.6)
+### Estructura de archivos (v0.7)
 
 ```
 app/
@@ -429,10 +429,22 @@ app/
     │   └── [id]/
     │       ├── route.js                 → GET/PUT: protocolo individual (edición con versionado)
     │       └── history/route.js         → GET: historial de versiones del protocolo
-    └── parrilla/                        → Endpoints activos aunque la vista esté oculta por feature flag
-        ├── route.js                     → GET: items por status y rango de fechas. POST: crear item individual
-        ├── [id]/route.js                → PATCH: actualizar item
-        └── batch/route.js               → POST: enviar múltiples piezas de una vez
+    ├── parrilla/                        → Endpoints activos aunque la vista esté oculta por feature flag
+    │   ├── route.js                     → GET: items por status y rango de fechas. POST: crear item individual
+    │   ├── [id]/route.js                → PATCH: actualizar item
+    │   └── batch/route.js               → POST: enviar múltiples piezas de una vez
+    └── descript/                        → Integración Descript (Sprint Descript)
+        ├── import/route.js              → POST: import por link (baja SRT + txt, crea/actualiza episodio)
+        ├── projects/route.js            → GET: listar proyectos de Descript (fallback de búsqueda)
+        ├── clip-text/route.js           → GET: extrae el texto verbatim de un clip del SRT (para "ver texto del clip")
+        └── jobs/
+            ├── route.js                 → GET: jobs de un episodio (para el panel de cola)
+            ├── enqueue/route.js         → POST: encolar cortes (con dedupe) y disparar el procesador
+            ├── process/route.js         → POST/GET: empujar la cola de un proyecto (heartbeat + poll de respaldo)
+            ├── webhook/route.js         → POST: callback de Descript al terminar un job
+            ├── cron/route.js            → GET: lo dispara el cron de Vercel; empuja TODAS las colas pendientes
+            ├── cancel/route.js          → POST: cancelar pendientes (queued → cancelled)
+            └── retry/route.js           → POST: reencolar un job en error/cancelado
 components/
 ├── FixtureBoard.jsx                     → Kanban del banco de ideas (3 columnas, 3 temperaturas, panel lateral, parrilla, pegar versión)
 ├── InicioView.jsx                       → Dashboard "Inicio" con cards de episodios, newsletters, ideas del Fixture y próximos programados
@@ -441,15 +453,23 @@ components/
 ├── NewsletterView.jsx                   → Workspace del newsletter (fase ideas + fase repurpose con reels, carrusel, linkedin)
 ├── ParrillaView.jsx                     → Vista de Parrilla completa. Oculta por SHOW_PARRILLA=false pero código conservado
 ├── ProtocolosViewer.jsx                 → Visor de protocolos (split view + edición + historial + aprendizajes inyectados en verde)
-└── ui.jsx                               → Utilidades compartidas: EditableText, ApplyBar, EditModal, AIEditBtn, CopyBtn, BankBtn, Skel, Badge, SendToParrillaBtn/Modal, etc.
+├── DescriptImportModal.jsx             → Modal de import (link de Descript o .txt de respaldo)
+├── DescriptJobsPanel.jsx               → Panel de la cola de cortes por episodio (estado por clip + links + cancelar/reintentar)
+├── DescriptGenerateBar.jsx            → Barra sticky con modal de confirmación de créditos
+└── ui.jsx                               → Utilidades compartidas: EditableText, ApplyBar, EditModal, AIEditBtn, CopyBtn, BankBtn, Skel, Badge, SendToParrillaBtn/Modal, api, apiRetry (fetch con reintento), etc.
 lib/
 ├── generation.js                        → loadProtocol (base + [APRENDIZAJES] aprobados), buildSystem (concat de protocolos), callClaude
+├── descript.js                          → Cliente REST de Descript + parseDescriptLink + buildCutPrompt + composicionName + interpretJob (lee la respuesta real de un job) + extractCompositionId
+├── descript-queue.js                    → Cola persistente de cortes: enqueueJobs, processNext (serializa por proyecto con claim optimista), completeJob, pollRunningJob, retryJob
 └── supabase.js                          → Cliente de Supabase (anon key)
 ```
 
 En la raíz del repo:
 - `cmo-engine-bible.md` — este documento
 - `spec-sprint-medianos.md` — spec de implementación del Sprint Medianos (referencia histórica)
+- `SPEC-integracion-descript.md` — spec de implementación de la integración Descript (referencia histórica)
+- `supabase-migration-descript-fix.sql` — migración correctiva de columnas de `descript_jobs`/`episodes` (referencia; ya aplicada en Supabase)
+- `vercel.json` — configura el cron de Descript (`/api/descript/jobs/cron` cada minuto)
 - `protocolo-carrusel-v1.md` — copia local del contenido del protocolo `carrusel` (fuente de verdad sigue siendo la tabla `protocolos` en Supabase)
 
 ---
@@ -698,6 +718,17 @@ Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to
 - ✅ Circuito de aprendizaje conectado bajo `target_protocol_name='medianos'` (síntesis y batch son genéricos, no hubo que agregar el slug a ninguna lista)
 - ✅ Fix colateral: `force-dynamic` + `no-store` en `/api/protocolos` para que el visor siempre refleje Supabase
 
+### Sprint Descript ✅ COMPLETO (9 Julio 2026)
+- ✅ Import por link de Descript (baja transcript SRT + txt automático); `.txt` queda como respaldo
+- ✅ Tabla `descript_jobs` (cola persistente) + columnas Descript en `episodes` (`descript_project_id/composition_id/composition_name`, `transcript_srt`)
+- ✅ Cortes de micros y medianos vía el agente de Descript, con nombres `MICRO_EP{n}_` / `MEDIANO_EP{n}_` y original intacto
+- ✅ Cola serializada por proyecto (Descript solo permite 1 job por proyecto a la vez), con dedupe, reintento y cancelar pendientes
+- ✅ Avance por webhook (prod) + heartbeat (pestaña abierta) + cron de Vercel (`/api/descript/jobs/cron`, `vercel.json`)
+- ✅ Protocolo `minado` a v2 (gancho + frase_inicio/cierre + frase_iman para poder cortar)
+- ✅ Tarjeta de micro rediseñada (gancho + punchline + "ver texto del clip" vía `/api/descript/clip-text`) y links que aterrizan en el clip exacto
+- ✅ Medianos con un solo botón "Desarrollar y enviar a Descript"
+- ✅ Env de producción: `DESCRIPT_API_TOKEN`, `NEXT_PUBLIC_SITE_URL`, `CRON_SECRET`
+
 ### Sprint 4 — Chat embebido + pulido (PENDIENTE)
 - Panel lateral con contexto automático (episodio / idea / protocolo / slot de parrilla)
 - Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio", "Programar en parrilla")
@@ -706,7 +737,6 @@ Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to
 ### Futuro
 - Métricas reales de redes → alimentan protocolos automáticamente
 - MCP para conectar Claude.ai con el sistema
-- Integración con Descript para minado automático
 - Bandeja de entrada / Google News interno
 - Espacio de feedback agregado (comentarios, DMs, socia)
 - Landing page y pricing para venta
@@ -715,7 +745,7 @@ Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to
 
 ## 13. PROTOCOLOS EN SUPABASE — ESTADO ACTUAL
 
-Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7 originales se insertaron el 17 Mayo 2026; `carrusel` se agregó durante el sprint del Newsletter; `medianos` se agregó el 7 Julio 2026 durante el sprint homónimo. Los chars y versiones de abajo se confirmaron contra el endpoint `/api/protocolos` en producción; `reels` está en v2 porque se editó desde el visor.
+Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7 originales se insertaron el 17 Mayo 2026; `carrusel` se agregó durante el sprint del Newsletter; `medianos` se agregó el 7 Julio 2026 durante el sprint homónimo. Los chars y versiones de abajo se confirmaron contra el endpoint `/api/protocolos` en producción; `reels` está en v2 porque se editó desde el visor, y `minado` pasó a v2 con el Sprint Descript (frases de inicio/cierre + gancho + frase_iman).
 
 | Slug | Nombre | Versión | Chars | Descripción |
 |------|--------|---------|-------|-------------|
@@ -723,7 +753,7 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 | `mapa-angulos` | Mapa del Episodio + Ángulos | 1 | 4,545 | Cómo extraer mapa estructurado + 20 ángulos con 10 patrones y marcos de evaluación. También lo usa el newsletter para armar el mapa "plomería silenciosa" del artículo. |
 | `titulos` | Títulos y Descripciones | 1 | 3,372 | 10 títulos (formato fijo, máx 60 chars), descripciones Spotify/YouTube, keywords, pilares. |
 | `intros` | Intros Leídos | 1 | 4,424 | 10 intros con 4 fórmulas narrativas, reglas de construcción, preferencias de Daniela. |
-| `minado` | Minado — Micro-contenido para Redes | 1 | 5,754 | 15-20 clips autónomos, 6 categorías, clips con Daniela [+DANI], voz en off. |
+| `minado` | Minado — Micro-contenido para Redes | 2 | — | 15-20 clips autónomos, 6 categorías, clips con Daniela [+DANI], voz en off. v2 (Sprint Descript): cada clip emite `gancho`, `frase_inicio` y `frase_cierre` verbatim (anclas de corte), `frase_iman`, `duracion_seg`, `categoria`, `dani`, `por_que_funciona`, `sugerencia_caption`. |
 | `medianos` | Contenido Mediano | 1 | 6,348 | Piezas de 4-12 min empaquetadas como mini-episodios. Rango temporal, tipo de ángulo, inicio/cierre textuales, 5 títulos, descripción YouTube, 3 thumbnails. Requiere transcript con timestamps. |
 | `reels` | Reels de Ideas Propias | 2 | 6,716 | Guiones de reel con arquitectura 4 tiempos, voz de Daniela con expresiones colombianas. v2 se editó desde el visor. |
 | `carrusel` | Carrusel de Instagram — Repurpose | 1 | 4,177 | 8-10 slides con portada + desarrollo + CTA. 5 patrones de gancho (dato_contundente, contraintuitivo, dolor_directo, promesa_lista, error_senalado). Se usa en el newsletter. |
@@ -770,6 +800,10 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 15. **Los Route Handlers `GET` sin parámetros dinámicos se cachean por defecto en Next.js 14 App Router.** Si un endpoint devuelve datos que cambian por fuera del ciclo de request (ej: JP inserta una fila directo en el SQL editor de Supabase), la respuesta cacheada oculta esos cambios. Solución: `export const dynamic = 'force-dynamic'` en el route + `cache: 'no-store'` en el fetch cliente. Le pasó al visor de Protocolos con `medianos` recién agregado.
 16. **`inicio_textual` y `cierre_textual` de los medianos son CITAS TEXTUALES.** El código no debe reformatear, limpiar puntuación, quitar muletillas ni normalizar espacios. El modelo los devuelve tal como aparecen en el transcript y así deben persistirse. Reformatear los rompe como pista para buscar el tramo en Descript.
 17. **Aprendizajes: `POST /api/learnings` guarda `target_protocol_name` pero no `target_protocol_id`.** El circuito de síntesis funciona igual porque agrupa por nombre. La inyección en runtime (`loadProtocol`) y `protocol_history` sí dependen del `target_protocol_id`; si algún día se detecta que el badge de "learnings aprobados" cuenta 0 para todos, revisar si hay un trigger de Supabase que popule el id desde el name — el POST del route no lo hace.
+18. **La respuesta de un job de Descript terminado es `job_state: "stopped"` + `result.status: "success"|"error"`**, NO un campo `status: "succeeded"`. El id de la composición creada viene DENTRO de `result.agent_response` como `compositionId="<uuid>"` (no hay campo aparte). Interpretarlo mal deja la cola atascada creyendo que el job sigue corriendo. Toda la interpretación vive en `interpretJob` (`lib/descript.js`) — el webhook y el poll la reusan. (Fue el bug que dejó la cola congelada en el primer test real.)
+19. **Al delegar código a un agente con "la migración ya está corrida", el esquema real DEBE tener todas las columnas que el código asume.** El build pasa aunque falten columnas (compilar no toca la DB), pero explota en runtime al primer insert/update. Pasó con `descript_jobs` (le faltaban `descript_project_id`, `prompt`, `meta`, `started_at`, `completed_at`, `descript_response`) y con `episodes.descript_composition_name`. Verificar columnas contra el código antes de asumir que la migración quedó completa (`supabase-migration-descript-fix.sql` documenta el fix).
+20. **Las URLs web de Descript usan un id corto de 5 caracteres**, no el UUID completo: `web.descript.com/{project_id}/{primeros 5 chars del composition_id}`. Con el UUID completo el link no aterriza en el clip. Y ojo: **el cron de Vercel solo corre en PRODUCCIÓN, no en preview** — en preview la cola avanza por el heartbeat de la pestaña abierta.
+21. **Descript serializa por proyecto: solo un `/jobs/agent` a la vez por proyecto.** Un segundo job sobre el mismo proyecto se rechaza con "already running". Por eso la cola (`descript_jobs`) se procesa de a uno por `project_id`; nunca dispararlos en paralelo sobre el mismo episodio.
 
 ---
 
@@ -795,3 +829,4 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 - **Supabase:** proyecto cmo-engine, org Naranja Media, URL: vuujvuyxvsbcewbpdgae.supabase.co
 - **API Key Anthropic:** clave "naranja-engine" en console.anthropic.com
 - **Notion:** workspace de CMO Stories, protocolos bajo "📋 Protocolos"
+- **Descript:** API token creado en Descript → Settings → API tokens, atado al Drive de Naranja Media (donde viven los episodios). Guardado en Vercel como `DESCRIPT_API_TOKEN`. La app usa la API REST directamente (server-side); en Cowork/Claude se usó el conector MCP de Descript para las pruebas
