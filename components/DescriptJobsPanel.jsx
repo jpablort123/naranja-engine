@@ -8,12 +8,18 @@ import { O, OL, OB, GR, GL, MU, api } from "@/components/ui";
 // queued/running. La cola vive server-side, así que este panel es sólo lectura
 // (fuente de verdad: descript_jobs en Supabase).
 export default function DescriptJobsPanel({ episodeId, projectId, filterClipType, onDone }) {
-  const [state, setState] = useState({ jobs: [], summary: null, loading: true });
+  const [jobs, setJobs] = useState([]);
+  const [summary, setSummary] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   const load = async () => {
     const r = await api(`/api/descript/jobs?episode_id=${episodeId}`);
-    if (r?.jobs) setState({ jobs: r.jobs, summary: r.summary, loading: false });
-    else setState(s => ({ ...s, loading: false }));
+    if (r?.jobs) {
+      setJobs(r.jobs);
+      setSummary(r.summary);
+    }
+    setLoading(false);
+    return r;
   };
 
   useEffect(() => {
@@ -22,9 +28,9 @@ export default function DescriptJobsPanel({ episodeId, projectId, filterClipType
     load();
     const tick = async () => {
       if (!alive) return;
-      await load();
-      const active = (state.summary?.queued || 0) + (state.summary?.running || 0);
-      // Además de refrescar, empujar la cola (por si el webhook se perdió).
+      const r = await load();
+      const active = (r?.summary?.queued || 0) + (r?.summary?.running || 0);
+      // Heartbeat: empujar cola por si el webhook se perdió.
       if (projectId && active > 0) {
         api(`/api/descript/jobs/process`, {
           method: "POST",
@@ -38,17 +44,17 @@ export default function DescriptJobsPanel({ episodeId, projectId, filterClipType
   }, [episodeId, projectId]);
 
   useEffect(() => {
-    if (!state.summary) return;
-    const active = (state.summary.queued || 0) + (state.summary.running || 0);
-    if (active === 0 && (state.summary.done || 0) > 0) onDone?.();
-  }, [state.summary, onDone]);
+    if (!summary) return;
+    const active = (summary.queued || 0) + (summary.running || 0);
+    if (active === 0 && (summary.done || 0) > 0) onDone?.();
+  }, [summary, onDone]);
 
   const shown = filterClipType
-    ? state.jobs.filter(j => j.clip_type === filterClipType)
-    : state.jobs;
+    ? jobs.filter(j => j.clip_type === filterClipType)
+    : jobs;
 
   if (!episodeId) return null;
-  if (state.loading) return <div className="text-xs text-stone-400 italic">Cargando cola...</div>;
+  if (loading) return null;
   if (shown.length === 0) return null;
 
   const s = { queued: 0, running: 0, done: 0, error: 0 };

@@ -157,7 +157,6 @@ export default function DescriptImportModal({ onClose, onSubmit }) {
 }
 
 function FileInput({ fn, setFn, setTx, readFile }) {
-  const ref = useState(null);
   return (
     <>
       {fn ? (
