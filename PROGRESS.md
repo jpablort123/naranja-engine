@@ -3,7 +3,69 @@
 Rama: `feat/descript-integration`
 Referencia: `SPEC-integracion-descript.md`
 
-## Qué quedó hecho
+## Cambios más recientes (A–G)
+
+- **A. Botón único en Medianos**: se eliminó la barra "Enviar cortes a Descript"
+  aparte. Ahora el tab Medianos tiene un único CTA "Desarrollar y enviar N a
+  Descript" en la barra sticky global. Al confirmar créditos, corre
+  `medianos-desarrollo` para el paquete y encola las piezas con
+  `inicio_textual`/`cierre_textual` listos. Piezas sin inicio/cierre se
+  saltan (no rompen el flujo). El endpoint `enqueue` **dedupe** por
+  `(episode_id, clip_ref)` con status `queued`/`running`/`done`, así que
+  hacer clic dos veces **no** crea duplicados (cortes en `error` o
+  `cancelled` sí se pueden reencolar).
+
+- **B. Número de episodio real**: `extractEpisodeNumber` en
+  `app/api/descript/jobs/enqueue/route.js` ahora busca `EP\s*N`,
+  `Episodio\s*N`, `Episode\s*N` y (fallback) primer número. Además, si el
+  nombre del episodio no trae número, busca en
+  `ep.descript_composition_name`. Los nombres de composición quedan
+  `MEDIANO_EP4_...` en vez de `MEDIANO_EPX_...`.
+
+- **C. Reintento del "Load failed"**: `apiRetry` en `components/ui.jsx` (2-3
+  intentos con backoff exponencial 500ms → 1s → 2s). Usado en
+  `/api/descript/import` (modal de import) y `/api/descript/jobs/enqueue`
+  (MinadoTab y MedianosTab). No reintenta 4xx no-429 (los errores de
+  negocio se muestran directo).
+
+- **D. Cron de Vercel**: `GET/POST /api/descript/jobs/cron` procesa TODAS
+  las colas pendientes (poll de respaldo de `running` viejos + `processNext`
+  por proyecto). Protegido opcionalmente con `CRON_SECRET`
+  (`Authorization: Bearer <secret>` — Vercel lo manda automáticamente).
+  `vercel.json` corre este endpoint **cada minuto**. La cola avanza aunque
+  el navegador esté cerrado.
+
+- **G. Cancelar pendientes**: `POST /api/descript/jobs/cancel` con
+  `{ episode_id }` o `{ project_id }` pasa a `cancelled` los que están en
+  `queued` (no toca `running`/`done`/`error`). En el panel:
+  - Botón "cancelar pendientes" visible cuando hay `queued > 0`.
+  - Insignia "N cancelado(s)" en el resumen.
+  - Filas `cancelled` con line-through + opacidad + botón "reintentar".
+
+**Cómo probar A–G:**
+
+1. **A y B**: importa un episodio por link cuyo nombre traiga "Episodio 4"
+   (o el episodio ya cargado por JP). Tab Medianos → generar candidatos →
+   marcar 2-3 → CTA "Desarrollar y enviar N a Descript" (con hasDescript).
+   Modal de confirmación de créditos (`~9 * N`). Aceptar. En unos segundos
+   el paquete aparece completo y los cortes empiezan a encolarse. Verificar
+   en Supabase (`select composition_name from descript_jobs`) que los
+   nombres son `MEDIANO_EP{n}_...` con el n real, no `EPX`. Volver a hacer
+   clic con los mismos candidatos → **no aparecen filas nuevas** (dedupe).
+2. **C**: apagar el servidor local, entrar rápido a "Nuevo episodio" y
+   pegar un link. Antes se veía "Load failed"; ahora reintenta hasta 3
+   veces con backoff.
+3. **D**: en el editor SQL de Supabase, dejar un job en `status='queued'`
+   sin usuario abierto. Esperar 60s (cron de Vercel). Al minuto siguiente,
+   el job debería haber pasado a `running` y luego a `done`. Sin desplegar,
+   probar local con:
+   `curl 'http://localhost:3000/api/descript/jobs/cron' -H 'Authorization: Bearer <SI-TIENES-CRON_SECRET>'`
+4. **G**: en el panel, dispara una tanda grande. Cuando queden filas en
+   "en cola", hacer clic en "cancelar pendientes". Todas pasan a
+   `cancelled` (line-through). Las que ya estaban `running` siguen
+   corriendo. Cada cancelado tiene botón "reintentar" para recuperarlo.
+
+## Qué quedó hecho (base — commits anteriores)
 
 ### 1. Cliente Descript (server-side)
 - `lib/descript.js`
@@ -53,7 +115,11 @@ Todo el estado vive en `descript_jobs`. Sobrevive al cierre del navegador.
     para encadenar el siguiente clip del mismo project (respeta bloqueo por
     proyecto).
 
-- `POST /api/descript/jobs/retry` — reencola un job en error.
+- `POST /api/descript/jobs/retry` — reencola un job en error/cancelled.
+- `POST /api/descript/jobs/cancel` — pasa a `cancelled` los `queued` de un
+  episodio o proyecto.
+- `GET  /api/descript/jobs/cron` — cron entrypoint (Vercel `* * * * *`);
+  poll de respaldo + `processNext` para todos los proyectos con trabajo.
 - `GET  /api/descript/jobs?episode_id=...` — lista para la UI.
 
 ### 4. Generación editorial
@@ -94,6 +160,10 @@ Todo el estado vive en `descript_jobs`. Sobrevive al cierre del navegador.
    servidor (necesario para el webhook). Alternativa: `SITE_URL` o `VERCEL_URL`.
 3. La migración de Supabase de la SPEC §4 ya está aplicada
    (columnas nuevas en `episodes` + tabla `descript_jobs`).
+4. Opcional: `CRON_SECRET` (Vercel lo maneja automáticamente para su cron).
+   Si está seteado, el endpoint `/api/descript/jobs/cron` exige
+   `Authorization: Bearer <CRON_SECRET>`. Si no, cualquiera lo puede llamar
+   (útil para dev local).
 
 ### Camino feliz — micros
 1. `npm run dev`, abrir la app.
@@ -150,9 +220,17 @@ Todo el estado vive en `descript_jobs`. Sobrevive al cierre del navegador.
   por `NEXT_PUBLIC_SITE_URL` (o `VERCEL_URL` automático en Vercel). Si nada
   está seteado, no se manda `callback_url` a Descript y todo depende del
   fallback de polling (funciona pero es menos reactivo).
-- **Cancelar un job en cola / abortar tanda**: no hay endpoint expuesto para
-  cancelar; en la tabla se puede hacer manualmente (setear status a `error`).
-  Se puede añadir `POST /api/descript/jobs/cancel` cuando haga falta.
+- ~~**Cancelar un job en cola / abortar tanda**~~: **hecho** con
+  `POST /api/descript/jobs/cancel` + botón "cancelar pendientes" en el
+  panel. Los `running` no se pueden cortar desde acá (habría que llamar a
+  Descript directamente); si se necesita, agregar en un futuro.
+- **`supabase-migration-descript-fix.sql`** apareció en el repo por edición
+  externa (hook/linter). **No lo corrí yo** (respeté la instrucción de no
+  tocar Supabase). Contiene `ALTER TABLE ... IF NOT EXISTS` idempotentes; si
+  después de correr la migración inicial faltan columnas
+  (`descript_composition_name`, `descript_project_id`, `prompt`, `meta`,
+  `started_at`, `completed_at`, `descript_response`), aplicarlo desde el
+  editor SQL de Supabase. Si la migración inicial ya trajo todo, es un no-op.
 - **Tests**: no incluidos (la app no tenía suite previa; agregar tests unitarios
   de `lib/descript.js` y `lib/descript-queue.js` es lo que más rendiría).
 - **Contrato del webhook de Descript**: el handler acepta varias formas del
@@ -179,6 +257,17 @@ npm run dev
 
 # Ver los jobs de un episodio (dev)
 curl 'http://localhost:3000/api/descript/jobs?episode_id=<uuid>'
+
+# Cancelar todos los queued de un episodio
+curl -X POST -H 'content-type: application/json' \
+  -d '{"episode_id":"<uuid>"}' \
+  http://localhost:3000/api/descript/jobs/cancel
+
+# Ejecutar el cron manualmente (sin CRON_SECRET)
+curl 'http://localhost:3000/api/descript/jobs/cron'
+# Con CRON_SECRET:
+curl -H 'Authorization: Bearer <CRON_SECRET>' \
+  'http://localhost:3000/api/descript/jobs/cron'
 
 # Empujar cola manualmente
 curl -X POST -H 'content-type: application/json' \
