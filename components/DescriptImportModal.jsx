@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { X, Upload, Loader2, FileText, Link as LinkIcon, Sparkles } from "lucide-react";
-import { O, OL, OB, GR, GL, MU, api } from "@/components/ui";
+import { O, OL, OB, GR, GL, MU, api, apiRetry } from "@/components/ui";
 
 // ═══ Modal unificado de "Nuevo episodio" con dos vías:
 //   (a) Link de Descript (auto-import transcript SRT + txt)
@@ -32,7 +32,13 @@ export default function DescriptImportModal({ onClose, onSubmit }) {
     try {
       const body = { descript_link: link.trim() };
       if (name.trim()) body.name = name.trim();
-      const r = await api("/api/descript/import", { method: "POST", body: JSON.stringify(body) });
+      // apiRetry: cold-start del server tumba el primer fetch a Descript en
+      // frío bastante seguido; 3 intentos con backoff 500ms → 1s → 2s.
+      const r = await apiRetry(
+        "/api/descript/import",
+        { method: "POST", body: JSON.stringify(body) },
+        { tries: 3, baseDelay: 500 }
+      );
       if (r.error) throw new Error(r.error);
       // El endpoint ya creó el episodio en Supabase. Le devolvemos al padre
       // el episode ya creado para que arranque angles.

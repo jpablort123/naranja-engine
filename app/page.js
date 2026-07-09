@@ -4,7 +4,7 @@ import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2
 import dynamic from "next/dynamic";
 import {
   O, OL, OB, GR, GL, MU,
-  api, CopyBtn, BankBtn, Skel, Badge,
+  api, apiRetry, CopyBtn, BankBtn, Skel, Badge,
   EditableText, ApplyBar, EditModal, AIEditBtn,
   SendToParrillaBtn,
 } from "@/components/ui";
@@ -813,13 +813,14 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
         rango_fin: m.timestamp,
       };
     });
-    const r = await api("/api/descript/jobs/enqueue", {
-      method: "POST",
-      body: JSON.stringify({ episode_id: ep.id, clips }),
-    });
+    const r = await apiRetry(
+      "/api/descript/jobs/enqueue",
+      { method: "POST", body: JSON.stringify({ episode_id: ep.id, clips }) },
+      { tries: 3, baseDelay: 500 }
+    );
     if (r.error) return { ok: false, error: r.error };
     setSelected({});
-    return { ok: true };
+    return { ok: true, enqueued: r.enqueued, skipped: r.skipped };
   };
 
   if (loading || !momentos.length) return <div className="rounded-xl border border-stone-200 bg-white p-5"><h3 className="font-semibold text-[15px] text-stone-800 mb-3">⛏️ Micro-contenido para redes</h3><Skel n={6} /></div>;
@@ -1091,27 +1092,67 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
 
   const anyDeveloped = medianos.length > 0;
 
-  // Handler para encolar cortes de todos los medianos desarrollados (o los que aún no tienen job).
-  const dispatchMedianosToDescript = async () => {
+  // ── Encola cortes de los medianos con inicio/cierre listos.
+  // Se llama desde el flujo unificado (después de desarrollar) o para
+  // reprocesar medianos ya desarrollados. El endpoint dedupe por clip_ref, así
+  // que dos clics no crean duplicados.
+  const encolarCortes = async (medianosParaEncolar) => {
     if (!hasDescript) return { ok: false, error: "Este episodio no está vinculado a Descript" };
-    const clips = medianos
-      .filter(m => (m.inicio_textual || "").trim() && (m.cierre_textual || "").trim())
-      .map((m, i) => ({
-        clip_type: "mediano",
-        clip_ref: m.id || `mediano-${i}`,
-        titulo_trabajo: m.titulo_trabajo || `mediano-${i + 1}`,
-        frase_inicio: m.inicio_textual,
-        frase_cierre: m.cierre_textual,
-        rango_inicio: m.rango_inicio,
-        rango_fin: m.rango_fin,
-      }));
-    if (clips.length === 0) return { ok: false, error: "Ningún mediano tiene inicio/cierre textuales" };
-    const r = await api("/api/descript/jobs/enqueue", {
-      method: "POST",
-      body: JSON.stringify({ episode_id: ep.id, clips }),
-    });
+    const validos = (medianosParaEncolar || []).filter(m => (m.inicio_textual || "").trim() && (m.cierre_textual || "").trim());
+    const invalidos = (medianosParaEncolar || []).length - validos.length;
+    if (validos.length === 0) return { ok: false, error: "Ningún mediano tiene inicio/cierre textuales" };
+    const clips = validos.map((m, i) => ({
+      clip_type: "mediano",
+      clip_ref: m.id || `mediano-${i}`,
+      titulo_trabajo: m.titulo_trabajo || `mediano-${i + 1}`,
+      frase_inicio: m.inicio_textual,
+      frase_cierre: m.cierre_textual,
+      rango_inicio: m.rango_inicio,
+      rango_fin: m.rango_fin,
+    }));
+    const r = await apiRetry(
+      "/api/descript/jobs/enqueue",
+      { method: "POST", body: JSON.stringify({ episode_id: ep.id, clips }) },
+      { tries: 3, baseDelay: 500 }
+    );
     if (r.error) return { ok: false, error: r.error };
-    return { ok: true };
+    return { ok: true, enqueued: r.enqueued, skipped: r.skipped || [], invalidos };
+  };
+
+  // ── Flujo A: desarrollar el paquete + encolar los cortes en un solo clic.
+  // Devuelve al DescriptGenerateBar (que muestra el modal de confirmación de
+  // créditos antes de encolar). Si !hasDescript, solo desarrolla.
+  const desarrollarYEncolar = async () => {
+    if (selectedIds.length === 0) return { ok: false, error: "Selecciona al menos un candidato" };
+    const seleccionados = candidatos.filter(c => selectedIds.includes(c.id));
+    // 1) Desarrollar el paquete (comparte estado con el flujo viejo — setGenDev).
+    setGenDev(true);
+    let piezas = [];
+    try {
+      const res = await generate({
+        episode_id: ep.id,
+        phase: "medianos-desarrollo",
+        mapa: ep.mapa,
+        candidatos_seleccionados: seleccionados,
+      });
+      if (res?.error) return { ok: false, error: res.error };
+      piezas = res?.result?.medianos || [];
+      if (piezas.length === 0) return { ok: false, error: "El desarrollo no devolvió piezas" };
+      // Merge con los medianos existentes por id (no perder otros ya desarrollados)
+      const byId = new Map(medianos.map(m => [m.id || m.titulo_trabajo, m]));
+      piezas.forEach(p => byId.set(p.id || p.titulo_trabajo, { ...(byId.get(p.id || p.titulo_trabajo) || {}), ...p }));
+      const nextMedianos = Array.from(byId.values());
+      onUpdate({ medianos: nextMedianos });
+    } finally {
+      setGenDev(false);
+    }
+    // 2) Si estamos vinculados a Descript, encolar los cortes de las nuevas piezas.
+    if (!hasDescript) {
+      return { ok: true, note: "sin descript_project_id — solo desarrollado" };
+    }
+    const enq = await encolarCortes(piezas);
+    if (!enq.ok) return enq;
+    return { ok: true, enqueued: enq.enqueued, skipped: enq.skipped, invalidos: enq.invalidos };
   };
 
   return (
@@ -1174,8 +1215,10 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
           })}
         </div>
 
-        {/* Barra de selección */}
-        <div className="flex items-center gap-3 pt-3 border-t border-stone-100">
+        {/* Barra de selección — solo visible cuando NO hay Descript (sin él, no hay
+            paso de cortes → CTA aquí adentro). Con Descript, el CTA vive en la
+            barra sticky global (DescriptGenerateBar) con modal de créditos. */}
+        {!hasDescript && <div className="flex items-center gap-3 pt-3 border-t border-stone-100">
           <p className="text-xs text-stone-500 flex-1">
             {selectedIds.length === 0
               ? "Selecciona al menos uno para desarrollar."
@@ -1194,7 +1237,19 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
               ? <><Loader2 size={14} className="animate-spin" /> Desarrollando...</>
               : <><Sparkles size={14} /> Desarrollar {selectedIds.length || ""} mediano{selectedIds.length === 1 ? "" : "s"}</>}
           </button>
-        </div>
+        </div>}
+        {hasDescript && (
+          <div className="pt-3 border-t border-stone-100 flex items-center gap-2">
+            <p className="text-xs text-stone-500 flex-1">
+              {selectedIds.length === 0
+                ? "Selecciona al menos uno. Cuando confirmes abajo desarrollamos el paquete y encolamos los cortes en Descript."
+                : `${selectedIds.length} mediano${selectedIds.length === 1 ? "" : "s"} listo${selectedIds.length === 1 ? "" : "s"} para desarrollar + enviar a Descript.`}
+            </p>
+            {genDev && <span className="text-[11px] flex items-center gap-1" style={{ color: O }}>
+              <Loader2 size={11} className="animate-spin" /> desarrollando…
+            </span>}
+          </div>
+        )}
       </div>
 
       {/* ── PASO 2: PIEZAS DESARROLLADAS ── */}
@@ -1400,11 +1455,12 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
         />
       )}
 
-      {hasDescript && anyDeveloped && (
+      {hasDescript && (
         <DescriptGenerateBar
-          count={medianos.filter(m => (m.inicio_textual || "").trim() && (m.cierre_textual || "").trim()).length}
-          onDispatch={dispatchMedianosToDescript}
-          label="Enviar cortes a Descript"
+          count={selectedIds.length}
+          onDispatch={desarrollarYEncolar}
+          label={selectedIds.length ? `Desarrollar y enviar ${selectedIds.length} a Descript` : "Desarrollar y enviar a Descript"}
+          disabledReason={genDev ? "hay un desarrollo en curso" : undefined}
         />
       )}
     </div>
