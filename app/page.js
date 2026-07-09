@@ -15,6 +15,9 @@ const ParrillaView = dynamic(() => import("@/components/ParrillaView"), { ssr: f
 const InicioView = dynamic(() => import("@/components/InicioView"), { ssr: false });
 const NewsletterUploadModal = dynamic(() => import("@/components/NewsletterUploadModal"), { ssr: false });
 const NewsletterView = dynamic(() => import("@/components/NewsletterView"), { ssr: false });
+const DescriptImportModal = dynamic(() => import("@/components/DescriptImportModal"), { ssr: false });
+const DescriptJobsPanel = dynamic(() => import("@/components/DescriptJobsPanel"), { ssr: false });
+const DescriptGenerateBar = dynamic(() => import("@/components/DescriptGenerateBar"), { ssr: false });
 
 async function generate(body) { return api("/api/generate", { method: "POST", body: JSON.stringify(body) }); }
 
@@ -767,18 +770,24 @@ function IntrosTab({ ep, onUpdate, onLearn }) {
 }
 
 // ═══ TAB: MINADO ═══
+// Curación de micros + integración Descript. Cada clip trae frase_inicio / frase_cierre
+// (payload de corte, oculto por defecto). El "gancho" es lo que domina la tarjeta;
+// selección con checkbox y barra sticky "Generar en Descript" con confirmación de créditos.
 function MinadoTab({ ep, phase, onUpdate, onLearn }) {
   const loading = phase === "minado" || phase === "angles" || phase === "contenido";
   const minado = ep.minado;
   const momentos = minado?.momentos || minado || [];
-  const vozEnOff = minado?.voz_en_off || [];
   const [fb, setFb] = useState({}); const [applying, setApplying] = useState(false); const [applied, setApplied] = useState(false);
+  const [selected, setSelected] = useState({}); // { [i]: bool }
+  const [showPayload, setShowPayload] = useState({}); // { [i]: bool } expandir frases de corte
+
+  const hasDescript = !!ep.descript_project_id;
 
   const applyFb = async () => {
     setApplying(true);
     const fbs = Object.entries(fb).filter(([, v]) => v.trim());
     const fbText = fbs.map(([i, v]) => `Momento ${+i + 1} ("${momentos[i]?.cita}"): ${v}`).join("\n");
-    const res = await generate({ prompt: `Momentos actuales:\n${momentos.map((m, i) => `${i + 1}. "${m.cita}" [${m.categoria}]`).join("\n")}\n\nFeedback:\n${fbText}\n\nRegenera aplicando feedback.\nJSON: { "momentos": [{ "cita": "string", "timestamp": "string", "duracion_seg": 30, "categoria": "string", "dani": false, "por_que_funciona": "string", "sugerencia_caption": "string" }] }` });
+    const res = await generate({ prompt: `Momentos actuales:\n${momentos.map((m, i) => `${i + 1}. "${m.cita}" [${m.categoria}]`).join("\n")}\n\nFeedback:\n${fbText}\n\nRegenera aplicando feedback (mantén frase_inicio y frase_cierre textuales).\nJSON: { "momentos": [{ "gancho": "string", "cita": "string", "frase_inicio": "string", "frase_cierre": "string", "timestamp": "string", "duracion_seg": 30, "categoria": "string", "dani": false, "por_que_funciona": "string", "frase_iman": "string", "sugerencia_caption": "string" }] }` });
     if (res.result?.momentos) {
       const updated = minado?.voz_en_off ? { ...minado, momentos: res.result.momentos } : res.result.momentos;
       onUpdate({ minado: updated });
@@ -787,13 +796,39 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
     setApplying(false); setApplied(true); setFb({}); setTimeout(() => setApplied(false), 3000);
   };
 
+  const toggleSel = (i) => setSelected(prev => ({ ...prev, [i]: !prev[i] }));
+  const selectedIdxs = Object.keys(selected).filter(k => selected[k]).map(k => parseInt(k, 10));
+
+  const dispatchToDescript = async () => {
+    if (!hasDescript) return { ok: false, error: "Este episodio no está vinculado a Descript" };
+    const clips = selectedIdxs.map(i => {
+      const m = momentos[i];
+      return {
+        clip_type: "micro",
+        clip_ref: `minado-${i}`,
+        titulo_trabajo: m.gancho || (m.cita || "").slice(0, 40),
+        frase_inicio: m.frase_inicio || m.cita || "",
+        frase_cierre: m.frase_cierre || m.cita || "",
+        rango_inicio: m.timestamp,
+        rango_fin: m.timestamp,
+      };
+    });
+    const r = await api("/api/descript/jobs/enqueue", {
+      method: "POST",
+      body: JSON.stringify({ episode_id: ep.id, clips }),
+    });
+    if (r.error) return { ok: false, error: r.error };
+    setSelected({});
+    return { ok: true };
+  };
+
   if (loading || !momentos.length) return <div className="rounded-xl border border-stone-200 bg-white p-5"><h3 className="font-semibold text-[15px] text-stone-800 mb-3">⛏️ Micro-contenido para redes</h3><Skel n={6} /></div>;
 
   // Piezas para enviar a la Parrilla — los clips de minado entran como 'reel' por defecto
   const parrillaPieces = momentos.map((m, i) => ({
     key: `minado-${i}`,
     label_prefix: `🎬 Clip — `,
-    title: (m.cita || "").slice(0, 80) + ((m.cita || "").length > 80 ? "…" : ""),
+    title: (m.gancho || m.cita || "").slice(0, 80) + ((m.gancho || m.cita || "").length > 80 ? "…" : ""),
     content: m.cita || "",
     content_type: "reel",
     preview: m.por_que_funciona || m.sugerencia_caption,
@@ -805,36 +840,93 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
         <SendToParrillaBtn pieces={parrillaPieces} source={{ id: ep.id, name: ep.name, origin_type: 'episode', label_prefix: 'Ep. ' }} />
       </div>
     )}
-    {/* VOZ EN OFF — oculto en UI (data se conserva en minado.voz_en_off) */}
+
+    {hasDescript && (
+      <DescriptJobsPanel episodeId={ep.id} projectId={ep.descript_project_id} filterClipType="micro" />
+    )}
 
     {/* MOMENTOS */}
     <div className="rounded-xl border border-stone-200 bg-white p-5">
       <h3 className="font-semibold text-[15px] text-stone-800 mb-1">⛏️ {momentos.length} clips para redes</h3>
-      <p className="text-xs text-stone-400 mb-4">Cada clip funciona solo, sin contexto, como pieza independiente en el feed.</p>
-      <div className="space-y-2">{momentos.map((m, i) => <div key={i} className="rounded-xl border border-stone-200 p-3.5">
-        <div className="flex items-start gap-3">
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            <span className="text-xs font-mono font-medium text-stone-400 bg-stone-100 px-2 py-1 rounded-md">{m.timestamp}</span>
-            {m.duracion_seg && <span className="text-[10px] text-stone-400">{m.duracion_seg}s</span>}
-          </div>
-          <div className="flex-1 min-w-0">
-            <EditableText text={m.cita} onSave={v => { const n = [...momentos]; n[i] = { ...n[i], cita: v }; const updated = minado?.voz_en_off ? { ...minado, momentos: n } : n; onUpdate({ minado: updated }); }} multiline />
-            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-              <Badge label={m.categoria} />
-              {m.dani && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-50 text-pink-600">+DANI</span>}
-              {m.por_que_funciona && <span className="text-[11px] text-stone-400 truncate">{m.por_que_funciona}</span>}
+      <p className="text-xs text-stone-400 mb-4">
+        {hasDescript
+          ? "Marca los que quieras cortar y confirma abajo. La cola vive en el servidor: puedes cerrar y volver."
+          : "Cada clip funciona solo, sin contexto, como pieza independiente en el feed."}
+      </p>
+      <div className="space-y-2">{momentos.map((m, i) => {
+        const isSel = !!selected[i];
+        const gancho = m.gancho || (m.cita || "").slice(0, 60);
+        const dur = m.duracion_seg;
+        return (
+          <div key={i} className="rounded-xl border p-3.5 transition-all"
+               style={{ borderColor: isSel ? O : "#E7E5E4", background: isSel ? OL : "white" }}>
+            <div className="flex items-start gap-3">
+              {hasDescript && (
+                <button onClick={() => toggleSel(i)}
+                        className="mt-1 w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0"
+                        style={{ borderColor: isSel ? O : "#D6D3D1", background: isSel ? O : "white" }}>
+                  {isSel && <Check size={12} color="white" strokeWidth={3} />}
+                </button>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <p className="text-sm font-medium text-stone-800">{gancho}</p>
+                  <Badge label={m.categoria} />
+                  {m.dani && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-pink-50 text-pink-600">+DANI</span>}
+                  {dur && <span className="text-[10px] text-stone-400">~{dur}s</span>}
+                </div>
+                {m.frase_iman && <p className="text-[13px] text-stone-600 italic mb-1">&ldquo;{m.frase_iman}&rdquo;</p>}
+                {m.por_que_funciona && <p className="text-[11px] text-stone-500 mb-1">{m.por_que_funciona}</p>}
+                {m.sugerencia_caption && <p className="text-[11px] text-stone-400 italic">Caption: {m.sugerencia_caption}</p>}
+                <button onClick={() => setShowPayload(p => ({ ...p, [i]: !p[i] }))}
+                        className="text-[10px] text-stone-400 hover:text-orange-600 mt-1.5">
+                  {showPayload[i] ? "ocultar" : "ver"} payload de corte
+                </button>
+                {showPayload[i] && (
+                  <div className="mt-2 space-y-1.5 rounded-lg bg-stone-50 p-2.5 border border-stone-100">
+                    <div>
+                      <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase inicio</span>
+                      <EditableText text={m.frase_inicio || m.cita || ""} multiline
+                        onSave={v => {
+                          const n = [...momentos]; n[i] = { ...n[i], frase_inicio: v };
+                          onUpdate({ minado: minado?.voz_en_off ? { ...minado, momentos: n } : n });
+                        }} />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-medium text-stone-400 uppercase tracking-widest">Frase cierre</span>
+                      <EditableText text={m.frase_cierre || m.cita || ""} multiline
+                        onSave={v => {
+                          const n = [...momentos]; n[i] = { ...n[i], frase_cierre: v };
+                          onUpdate({ minado: minado?.voz_en_off ? { ...minado, momentos: n } : n });
+                        }} />
+                    </div>
+                    <div className="text-[10px] text-stone-400">timestamp ref: {m.timestamp}</div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                <CopyBtn text={m.cita} />
+                <BankBtn payload={{ title: gancho.slice(0, 80), description: m.por_que_funciona, notes: m.cita, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} />
+              </div>
             </div>
-            {m.sugerencia_caption && <p className="text-[11px] text-stone-400 italic mt-1">Caption: {m.sugerencia_caption}</p>}
+            <div className="mt-2 ml-8">
+              <input value={fb[i] || ""} onChange={e => setFb({ ...fb, [i]: e.target.value })}
+                     placeholder="Feedback..."
+                     className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300" />
+            </div>
           </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <CopyBtn text={m.cita} />
-            <BankBtn payload={{ title: (m.cita || '').slice(0, 80) + ((m.cita || '').length > 80 ? '…' : ''), description: m.por_que_funciona, notes: m.cita, category: 'undecided', temperature: 'cold', origin_type: 'episode', origin_id: ep.id, origin_url: ep.name }} />
-          </div>
-        </div>
-        <div className="mt-2 ml-16"><input value={fb[i] || ""} onChange={e => setFb({ ...fb, [i]: e.target.value })} placeholder="Feedback..." className="w-full text-xs px-3 py-1.5 rounded-lg border border-transparent hover:border-stone-200 focus:border-orange-300 focus:outline-none bg-transparent focus:bg-white transition-all placeholder:text-stone-300" /></div>
-      </div>)}</div>
+        );
+      })}</div>
       <ApplyBar feedbacks={fb} onApply={applyFb} applying={applying} applied={applied} />
     </div>
+
+    {hasDescript && (
+      <DescriptGenerateBar
+        count={selectedIdxs.length}
+        onDispatch={dispatchToDescript}
+        label={`Generar ${selectedIdxs.length || ""} en Descript`}
+      />
+    )}
   </div>;
 }
 
@@ -844,7 +936,10 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
 // Requiere transcript con timestamps (Descript).
 function MedianosTab({ ep, onUpdate, onLearn }) {
   // Detección de timestamps: [mm:ss], [hh:mm:ss], mm:ss o hh:mm:ss sueltos en el transcript.
-  const hasTimestamps = /\[?\b\d{1,2}:\d{2}(?::\d{2})?\b\]?/.test(ep?.transcript || "");
+  // Si el episodio está vinculado a Descript, tenemos SRT verbatim → dar por bueno.
+  const hasTimestamps = !!ep?.descript_project_id
+    || /\[?\b\d{1,2}:\d{2}(?::\d{2})?\b\]?/.test(ep?.transcript || "");
+  const hasDescript = !!ep?.descript_project_id;
 
   const candidatos = ep?.medianos_candidatos || [];
   const medianos = ep?.medianos || [];
@@ -996,8 +1091,35 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
 
   const anyDeveloped = medianos.length > 0;
 
+  // Handler para encolar cortes de todos los medianos desarrollados (o los que aún no tienen job).
+  const dispatchMedianosToDescript = async () => {
+    if (!hasDescript) return { ok: false, error: "Este episodio no está vinculado a Descript" };
+    const clips = medianos
+      .filter(m => (m.inicio_textual || "").trim() && (m.cierre_textual || "").trim())
+      .map((m, i) => ({
+        clip_type: "mediano",
+        clip_ref: m.id || `mediano-${i}`,
+        titulo_trabajo: m.titulo_trabajo || `mediano-${i + 1}`,
+        frase_inicio: m.inicio_textual,
+        frase_cierre: m.cierre_textual,
+        rango_inicio: m.rango_inicio,
+        rango_fin: m.rango_fin,
+      }));
+    if (clips.length === 0) return { ok: false, error: "Ningún mediano tiene inicio/cierre textuales" };
+    const r = await api("/api/descript/jobs/enqueue", {
+      method: "POST",
+      body: JSON.stringify({ episode_id: ep.id, clips }),
+    });
+    if (r.error) return { ok: false, error: r.error };
+    return { ok: true };
+  };
+
   return (
     <div>
+      {hasDescript && (
+        <DescriptJobsPanel episodeId={ep.id} projectId={ep.descript_project_id} filterClipType="mediano" />
+      )}
+
       {/* ── PASO 1: CANDIDATOS ── */}
       <div className="rounded-xl border border-stone-200 bg-white p-5 mb-4">
         <div className="flex items-start justify-between gap-3 mb-1">
@@ -1277,6 +1399,14 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
           onApply={async fb => { await applyDescFb(editM.mIdx, fb); setEditM(null); }}
         />
       )}
+
+      {hasDescript && anyDeveloped && (
+        <DescriptGenerateBar
+          count={medianos.filter(m => (m.inicio_textual || "").trim() && (m.cierre_textual || "").trim()).length}
+          onDispatch={dispatchMedianosToDescript}
+          label="Enviar cortes a Descript"
+        />
+      )}
     </div>
   );
 }
@@ -1440,9 +1570,28 @@ export default function Home() {
   }, [nl]);
 
   // ═══ FLOW: UPLOAD → ANGLES ═══
-  const startGen = useCallback(async (name, transcript) => {
-    const newEp = await api("/api/episodes", { method: "POST", body: JSON.stringify({ name, transcript }) });
-    if (newEp.error) { alert("Error: " + newEp.error); return; }
+  // Acepta:
+  //   - (name, transcript)  → modo legacy .txt
+  //   - { mode: 'descript' | 'file', episode?, name?, transcript? } → modo unificado del nuevo modal
+  const startGen = useCallback(async (a, b) => {
+    let newEp;
+    // Compat: llamada vieja (name, transcript)
+    if (typeof a === "string") {
+      newEp = await api("/api/episodes", { method: "POST", body: JSON.stringify({ name: a, transcript: b }) });
+      if (newEp.error) { alert("Error: " + newEp.error); return; }
+    } else if (a && typeof a === "object") {
+      if (a.mode === "descript" && a.episode) {
+        newEp = a.episode; // ya creado por /api/descript/import
+      } else if (a.mode === "file") {
+        newEp = await api("/api/episodes", { method: "POST", body: JSON.stringify({ name: a.name, transcript: a.transcript }) });
+        if (newEp.error) { alert("Error: " + newEp.error); return; }
+      } else {
+        alert("Formato inválido");
+        return;
+      }
+    } else {
+      return;
+    }
     setEps(prev => [newEp, ...prev]);
     setIdx(0); setShowUp(false); setTab("contenido"); setPhase("angles"); setActiveView("workspace");
 
@@ -1905,7 +2054,7 @@ export default function Home() {
           </div>
         )}
       </div>
-      {showUp && <UploadModal onClose={() => setShowUp(false)} onSubmit={startGen} />}
+      {showUp && <DescriptImportModal onClose={() => setShowUp(false)} onSubmit={startGen} />}
       {showNlUpload && <NewsletterUploadModal onClose={() => setShowNlUpload(false)} onSubmit={startNlGen} />}
     </div>
   );
