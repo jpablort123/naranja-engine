@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { completeJob } from '@/lib/descript-queue';
+import { interpretJob } from '@/lib/descript';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
@@ -14,26 +15,10 @@ export async function POST(req) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Formatos observados/plausibles: { job_id, status, ... } o { data: { id, status, ... } }
+    // El webhook comparte formato con GET /jobs/{id}. Interpretamos con el mismo
+    // helper que el poll de respaldo (job_state 'stopped' + result.status, etc.).
     const jobId = body?.job_id || body?.id || body?.data?.job_id || body?.data?.id;
-    const status = (body?.status || body?.data?.status || '').toLowerCase();
-    const compositionId =
-      body?.result?.composition_id ||
-      body?.composition_id ||
-      body?.data?.result?.composition_id ||
-      body?.data?.composition_id ||
-      null;
-    const credits =
-      body?.ai_credits_used ??
-      body?.credits ??
-      body?.data?.ai_credits_used ??
-      body?.data?.credits ??
-      null;
-    const errorMsg =
-      body?.error?.message ||
-      body?.message ||
-      body?.data?.error?.message ||
-      null;
+    const { outcome, compositionId, credits, errorMessage: errorMsg } = interpretJob(body);
 
     if (!jobId) {
       return NextResponse.json({ ok: false, error: 'sin job_id' }, { status: 400 });
@@ -49,8 +34,8 @@ export async function POST(req) {
       return NextResponse.json({ ok: false, error: 'job desconocido' }, { status: 404 });
     }
 
-    const isDone = ['succeeded', 'done', 'completed'].includes(status);
-    const isErr = ['failed', 'error', 'cancelled'].includes(status);
+    const isDone = outcome === 'done';
+    const isErr = outcome === 'error';
 
     if (!isDone && !isErr) {
       // Estado intermedio (queued/running en Descript) — solo tocar updated_at.

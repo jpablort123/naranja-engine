@@ -61,7 +61,7 @@ export async function GET(req) {
   }
 }
 
-const STALE_MS = 3 * 60 * 1000; // 3 min sin novedad → poll de respaldo
+const STALE_MS = 20 * 1000; // 20s sin novedad → poll de respaldo (getJob es barato y read-only)
 
 async function stepProject(project_id) {
   // 1) Si hay uno running "viejo" sin webhook, poll de respaldo.
