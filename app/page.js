@@ -1,6 +1,6 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail, Trash2, Radar as RadarIcon, Users } from "lucide-react";
 import dynamic from "next/dynamic";
 import {
   O, OL, OB, GR, GL, MU,
@@ -15,12 +15,17 @@ const ParrillaView = dynamic(() => import("@/components/ParrillaView"), { ssr: f
 const InicioView = dynamic(() => import("@/components/InicioView"), { ssr: false });
 const NewsletterUploadModal = dynamic(() => import("@/components/NewsletterUploadModal"), { ssr: false });
 const NewsletterView = dynamic(() => import("@/components/NewsletterView"), { ssr: false });
+const RadarView = dynamic(() => import("@/components/estrategia/RadarView"), { ssr: false });
+const PublicoView = dynamic(() => import("@/components/estrategia/PublicoView"), { ssr: false });
+const LineageTab = dynamic(() => import("@/components/estrategia/LineageTab"), { ssr: false });
 
 async function generate(body) { return api("/api/generate", { method: "POST", body: JSON.stringify(body) }); }
 
 // ═══ FEATURE FLAGS ═══
 // Parrilla queda oculta en UI (código conservado). Cambiar a true para reactivar.
 const SHOW_PARRILLA = false;
+// spec §1, §10 — grupo Estrategia (Radar + Público) tras este flag.
+const SHOW_ESTRATEGIA = true;
 
 // ═══ UPLOAD MODAL ═══
 function UploadModal({ onClose, onSubmit }) {
@@ -1288,7 +1293,7 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
-  const [activeView, setActiveView] = useState("inicio"); // inicio | podcast | newsletter | newsletter_workspace | workspace | learnings | protocolos | fixture | parrilla
+  const [activeView, setActiveView] = useState(SHOW_ESTRATEGIA ? "radar" : "inicio"); // radar | publico | inicio | podcast | newsletter | newsletter_workspace | workspace | learnings | protocolos | fixture | parrilla
   const [parrillaInboxCount, setParrillaInboxCount] = useState(0);
   const [podcastExpanded, setPodcastExpanded] = useState(true);
 
@@ -1483,6 +1488,7 @@ export default function Home() {
     { key: "intros", label: "Intros", icon: "🎤" },
     { key: "minado", label: "Minado", icon: "⛏️" },
     { key: "medianos", label: "Medianos", icon: "🎬" },
+    ...(SHOW_ESTRATEGIA ? [{ key: "linaje", label: "Linaje", icon: "🌳" }] : []),
   ];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
@@ -1538,18 +1544,41 @@ export default function Home() {
 
         {/* Nav scrollable */}
         <div className="flex-1 overflow-y-auto px-3 pb-2">
-          {/* Inicio */}
-          <button
-            onClick={() => goTo("inicio")}
-            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
-            style={{ background: activeView === "inicio" ? "rgba(234,88,12,0.15)" : "transparent" }}
-          >
-            <HomeIcon size={14} style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
-            <span style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Inicio</span>
-          </button>
+          {SHOW_ESTRATEGIA ? (
+            <>
+              {/* ESTRATEGIA */}
+              <p className="text-[10px] uppercase tracking-widest text-zinc-600 px-2 mb-2">Estrategia</p>
+              <button
+                onClick={() => goTo("radar")}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+                style={{ background: activeView === "radar" ? "rgba(234,88,12,0.15)" : "transparent" }}
+              >
+                <RadarIcon size={14} style={{ color: activeView === "radar" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+                <span style={{ color: activeView === "radar" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Radar</span>
+              </button>
+              <button
+                onClick={() => goTo("publico")}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+                style={{ background: activeView === "publico" ? "rgba(234,88,12,0.15)" : "transparent" }}
+              >
+                <Users size={14} style={{ color: activeView === "publico" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+                <span style={{ color: activeView === "publico" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Público</span>
+              </button>
+            </>
+          ) : (
+            /* Inicio (fallback cuando SHOW_ESTRATEGIA=false) */
+            <button
+              onClick={() => goTo("inicio")}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+              style={{ background: activeView === "inicio" ? "rgba(234,88,12,0.15)" : "transparent" }}
+            >
+              <HomeIcon size={14} style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+              <span style={{ color: activeView === "inicio" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Inicio</span>
+            </button>
+          )}
 
-          {/* CONTENIDO */}
-          <p className="text-[10px] uppercase tracking-widest text-zinc-600 px-2 mb-2 mt-4">Contenido</p>
+          {/* PRODUCCIÓN (antes "Contenido") */}
+          <p className="text-[10px] uppercase tracking-widest text-zinc-600 px-2 mb-2 mt-4">{SHOW_ESTRATEGIA ? "Producción" : "Contenido"}</p>
 
           {/* Podcast (expandible) */}
           <div className="mb-1">
@@ -1722,7 +1751,18 @@ export default function Home() {
 
       {/* MAIN */}
       <div className="flex-1 overflow-y-auto">
-        {activeView === 'learnings' ? (
+        {activeView === 'radar' ? (
+          <RadarView
+            onVerLinaje={(episodeId) => {
+              const i = eps.findIndex(e => e.id === episodeId);
+              if (i >= 0) { setIdx(i); setPhase(eps[i]?.status === 'complete' ? 'done' : null); }
+              setTab('linaje');
+              setActiveView('workspace');
+            }}
+          />
+        ) : activeView === 'publico' ? (
+          <PublicoView />
+        ) : activeView === 'learnings' ? (
           <LearningsReview onBack={() => setActiveView('inicio')} onApplied={() => setLearnings(prev => prev.map(l => l.status === 'draft' ? { ...l, status: 'reviewed' } : l))} />
         ) : activeView === 'protocolos' ? (
           <ProtocolosViewer onBack={() => setActiveView('inicio')} />
@@ -1902,6 +1942,7 @@ export default function Home() {
             {tab === "intros" && <IntrosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "medianos" && <MedianosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
+            {tab === "linaje" && <LineageTab episode={ep} />}
           </div>
         )}
       </div>
