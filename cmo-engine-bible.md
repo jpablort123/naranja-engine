@@ -64,7 +64,7 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 - `episodes.medianos` → array de piezas desarrolladas por la Fase B: cada una con rango, duración, tipo, inicio_textual, cierre_textual, 5 títulos, descripcion_youtube y 3 conceptos de thumbnail
 - `episodes.transcript_srt` → transcript en formato SRT (con timestamps verbatim) que baja el import de Descript; es la fuente para anclar cortes y para "ver texto del clip". `episodes.transcript` sigue siendo el texto plano que consumen las fases de generación
 - `episodes.descript_project_id` / `descript_composition_id` / `descript_composition_name` → identifican el proyecto y la composición madre (el episodio completo) en Descript, para poder cortar sobre ellos
-- `descript_jobs` → una fila por corte enviado a Descript. Es la cola persistente (ver sección Sprint Descript). `status`: `'queued' | 'running' | 'done' | 'error' | 'cancelled'`. `clip_type`: `'micro' | 'mediano'`. `prompt` guarda la instrucción exacta al agente; `meta` guarda título/rango; `descript_response` guarda el payload crudo de Descript para debug
+- `descript_jobs` → una fila por corte enviado a Descript. Es la cola persistente (ver sección Integración Descript). `status`: `'queued' | 'running' | 'done' | 'error' | 'cancelled'`. `clip_type`: `'micro' | 'mediano'`. `prompt` guarda la instrucción exacta al agente; `meta` guarda título/rango; `descript_response` guarda el payload crudo de Descript para debug
 - `newsletters.articulo` → texto completo del artículo escrito por el autor (JP no lo reescribe; solo lo repurposea). Se puede subir en `.txt`, `.md` o `.docx`
 - `newsletters.resumen` → mapa "plomería silenciosa" del artículo (tesis, datos_duros, ideas_clave, tensiones, frases, conexiones). No se muestra al usuario, alimenta las llamadas siguientes
 - `newsletters.ideas` → lista de ideas validables extraídas del artículo (fase `ideas`)
@@ -433,7 +433,7 @@ app/
     │   ├── route.js                     → GET: items por status y rango de fechas. POST: crear item individual
     │   ├── [id]/route.js                → PATCH: actualizar item
     │   └── batch/route.js               → POST: enviar múltiples piezas de una vez
-    └── descript/                        → Integración Descript (Sprint Descript)
+    └── descript/                        → Integración Descript
         ├── import/route.js              → POST: import por link (baja SRT + txt, crea/actualiza episodio)
         ├── projects/route.js            → GET: listar proyectos de Descript (fallback de búsqueda)
         ├── clip-text/route.js           → GET: extrae el texto verbatim de un clip del SRT (para "ver texto del clip")

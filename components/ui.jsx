@@ -36,6 +36,34 @@ export async function api(path, opts) {
   return r.json();
 }
 
+// Retry helper para llamadas a endpoints que a veces tumban por cold start del
+// servidor (rutas de Descript son las principales candidatas). Reintenta hasta
+// `tries` veces con backoff corto. Se considera "reintentable" si:
+//   - fetch tira excepción de red
+//   - respuesta HTTP no ok (>=500 o 429)
+//   - el JSON trae `error` y no vino un 2xx explícito (LSF de "Load failed")
+export async function apiRetry(path, opts, { tries = 3, baseDelay = 500 } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+      if (r.ok) return await r.json();
+      // 4xx no reintentables (salvo 429)
+      if (r.status >= 400 && r.status < 500 && r.status !== 429) {
+        try { return await r.json(); } catch { return { error: `HTTP ${r.status}` }; }
+      }
+      lastErr = new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      lastErr = e;
+    }
+    if (attempt < tries - 1) {
+      const delay = baseDelay * Math.pow(2, attempt); // 500, 1000, 2000...
+      await new Promise(res => setTimeout(res, delay));
+    }
+  }
+  return { error: lastErr?.message || "Load failed" };
+}
+
 // ═══ SMALL UI ═══
 export function CopyBtn({ text }) {
   const [ok, s] = useState(false);

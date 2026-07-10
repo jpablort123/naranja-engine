@@ -92,7 +92,7 @@ Responde SOLO con JSON válido:
     }
 
     // ═══ PHASE: MINADO ═══
-    // Transcript → micro-content clips + voz en off
+    // Transcript → micro-content clips (con frase de inicio/cierre para Descript) + voz en off
     else if (phase === 'minado') {
       const system = await buildSystem(['adn', 'minado']);
       const tx = ep.transcript.substring(0, 30000);
@@ -104,16 +104,26 @@ Responde SOLO con JSON válido:
 ÁNGULOS EDITORIALES SELECCIONADOS (para la voz en off):
 ${anglesCtx}
 
+REGLAS ESTRICTAS:
+- frase_inicio y frase_cierre son CITAS TEXTUALES EXACTAS de la transcripción (para anclar cortes en Descript). No parafrasees. No limpies. Copia literal como aparezcan (muletillas, puntuación).
+- Si el clip es una sola oración corta, frase_inicio == frase_cierre.
+- gancho es el título/hook editorial del clip (máx 10 palabras, no textual).
+- frase_iman es la línea más citable del clip (para usar como copy destacado).
+
 Responde SOLO con JSON válido:
 {
   "momentos": [
     {
-      "cita": "texto EXACTO de la transcripción para buscar en Descript",
+      "gancho": "título editorial del clip (máx 10 palabras)",
+      "cita": "texto EXACTO de la transcripción (fragmento representativo)",
+      "frase_inicio": "cita textual exacta con la que arranca el corte",
+      "frase_cierre": "cita textual exacta con la que termina el corte",
       "timestamp": "MM:SS estimado",
       "duracion_seg": 30,
       "categoria": "DATO ABSURDO|INSIGHT ACCIONABLE|CONFESIÓN|IDEA CONTRARIAN|HISTORIA CON REMATE|TENSIÓN SIN RESOLVER",
       "dani": false,
       "por_que_funciona": "una oración",
+      "frase_iman": "la línea más citable del clip",
       "sugerencia_caption": "una línea para redes"
     }
   ],
