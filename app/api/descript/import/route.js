@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { parseDescriptLink, exportTranscript, getProject } from '@/lib/descript';
+import { withProductPayload } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
@@ -100,7 +101,7 @@ export async function POST(req) {
         status: 'draft',
         ...payload,
       };
-      const { data, error } = await db.from('episodes').insert(insert).select().single();
+      const { data, error } = await db.from('episodes').insert(withProductPayload(insert)).select().single();
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       ep = data;
     }

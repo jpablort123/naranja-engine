@@ -1607,6 +1607,29 @@ export default function Home() {
   const ep = idx >= 0 ? eps[idx] : null;
   const nl = nlIdx >= 0 ? nls[nlIdx] : null;
 
+  // ── Cara por defecto según ciclo de vida (spec universo §4):
+  // Al abrir un episodio existente, si ya tiene ≥1 published_items publicadas,
+  // la tab por defecto es "Universo" (linaje). Si es fresco, se mantiene el
+  // taller (Episodio). Solo aplica cuando SHOW_ESTRATEGIA está encendido.
+  useEffect(() => {
+    if (!SHOW_ESTRATEGIA) return;
+    if (!ep?.id) return;
+    if (activeView !== 'workspace') return;
+    // Recién creado (phase 'angles' / 'contenido' / 'minado' etc): NO cambiar la tab.
+    if (phase === 'angles' || phase === 'contenido' || phase === 'minado') return;
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api(`/api/published?origin_type=episode&origin_id=${ep.id}&status=publicada`);
+        if (!alive) return;
+        const publicadas = Array.isArray(r?.items) ? r.items.length : 0;
+        if (publicadas >= 1) setTab('linaje');
+      } catch {}
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ep?.id, activeView]);
+
   useEffect(() => {
     api("/api/episodes").then(data => { setEps(Array.isArray(data) ? data : []); setLoadingEps(false); });
     api("/api/newsletters").then(data => { setNls(Array.isArray(data) ? data : []); setLoadingNls(false); });
@@ -1803,7 +1826,7 @@ export default function Home() {
     { key: "intros", label: "Intros", icon: "🎤" },
     { key: "minado", label: "Minado", icon: "⛏️" },
     { key: "medianos", label: "Medianos", icon: "🎬" },
-    ...(SHOW_ESTRATEGIA ? [{ key: "linaje", label: "Linaje", icon: "🌳" }] : []),
+    ...(SHOW_ESTRATEGIA ? [{ key: "linaje", label: "Universo", icon: "🌐" }] : []),
   ];
   const draftLearnings = learnings.filter(l => l.status === "draft").length;
 
@@ -2257,7 +2280,7 @@ export default function Home() {
             {tab === "intros" && <IntrosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "medianos" && <MedianosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
-            {tab === "linaje" && <LineageTab episode={ep} />}
+            {tab === "linaje" && <LineageTab episode={ep} onGoToWorkshopTab={setTab} />}
           </div>
         )}
       </div>

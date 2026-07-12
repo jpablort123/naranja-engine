@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { withProduct } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 export const dynamic = 'force-dynamic';
@@ -13,9 +14,10 @@ export async function GET(_req, { params }) {
 
     const [{ data: ep }, { data: piezas = [] }, { data: metrics = [] }, { data: subs = [] }] = await Promise.all([
       db.from('episodes').select('id, name').eq('id', id).single(),
-      db.from('published_items').select('*').eq('origin_type', 'episode').eq('origin_id', id),
+      // Universo v0.8: piezas de TODOS los estados (spec §4).
+      withProduct(db.from('published_items').select('*').eq('origin_type', 'episode').eq('origin_id', id)),
       db.from('latest_metrics').select('*'),
-      db.from('subscribers').select('id, email, attributed_item_id'),
+      withProduct(db.from('subscribers').select('id, email, attributed_item_id')),
     ]);
     if (!ep) return NextResponse.json({ error: 'episodio no encontrado' }, { status: 404 });
 
@@ -40,13 +42,18 @@ export async function GET(_req, { params }) {
 
     // Strength: fuerte si trajo ≥3 subs; medio si tuvo alcance alto pero <3;
     // débil si poco de todo. Cuando no hay atribución, cae por reach.
+    // Piezas no publicadas (propuesta/descartada) siempre 'debil' — no tienen
+    // métricas todavía, así el color del stub no miente.
     const HIGH_REACH = 8000; // umbral suave por defecto — funciona con mock
     const shaped = (piezas || []).map(it => {
+      const status = it.status || 'publicada';
       const subs = subsByItem[it.id] || 0;
-      const reach = reachOf(it);
+      const reach = status === 'publicada' ? reachOf(it) : 0;
       let strength = 'debil';
-      if (subs >= 3) strength = 'fuerte';
-      else if (reach >= HIGH_REACH) strength = 'medio';
+      if (status === 'publicada') {
+        if (subs >= 3) strength = 'fuerte';
+        else if (reach >= HIGH_REACH) strength = 'medio';
+      }
       return {
         id: it.id,
         title: it.title,
@@ -54,17 +61,24 @@ export async function GET(_req, { params }) {
         platform: it.platform,
         published_url: it.published_url,
         angle_type: it.angle_type,
+        status,
+        discard_reason: it.discard_reason || null,
         reach,
-        engagement_rate: engOf(it),
+        engagement_rate: status === 'publicada' ? engOf(it) : null,
         subs_atribuidos: subs,
         strength,
         published_at: it.published_at,
       };
-    }).sort((a, b) => (b.reach - a.reach));
+    }).sort((a, b) => {
+      // Publicadas primero (por reach), luego propuestas (por título), luego descartadas.
+      const rank = { publicada: 0, propuesta: 1, descartada: 2 };
+      if (rank[a.status] !== rank[b.status]) return rank[a.status] - rank[b.status];
+      return (b.reach - a.reach);
+    });
 
-    // Madre: si hay una published_item de content_type='episodio' en las
-    // piezas, sus métricas propias (por plataforma) van al header.
-    const propias = (piezas || []).filter(p => p.content_type === 'episodio');
+    // Madre: si hay una published_item de content_type='episodio' publicada en
+    // las piezas, sus métricas propias (por plataforma) van al header.
+    const propias = (piezas || []).filter(p => p.content_type === 'episodio' && (p.status || 'publicada') === 'publicada');
     const madreMetrics = {};
     for (const p of propias) {
       const met = metByItem[p.id] || {};
@@ -74,9 +88,11 @@ export async function GET(_req, { params }) {
       };
     }
 
-    // Resultado total
-    const alcance_total = shaped.reduce((a, b) => a + b.reach, 0);
-    const subs_total = shaped.reduce((a, b) => a + b.subs_atribuidos, 0);
+    // Resultado total — solo cuenta las publicadas (las propuestas/descartes no aportan).
+    const publicadas = shaped.filter(p => p.status === 'publicada');
+    const alcance_total = publicadas.reduce((a, b) => a + b.reach, 0);
+    const subs_total = publicadas.reduce((a, b) => a + b.subs_atribuidos, 0);
+    const conteo = shaped.reduce((acc, p) => (acc[p.status] = (acc[p.status] || 0) + 1, acc), {});
 
     return NextResponse.json({
       madre: {
@@ -86,7 +102,7 @@ export async function GET(_req, { params }) {
         metrics: madreMetrics,
       },
       piezas: shaped,
-      resultado: { alcance_total, subs_total },
+      resultado: { alcance_total, subs_total, conteo },
     });
   } catch (e) {
     console.error('linaje error:', e);

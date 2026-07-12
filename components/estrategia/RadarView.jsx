@@ -10,6 +10,9 @@ import {
   CONTENT_TYPE_LABEL, PLATFORM_LABEL, ANGLE_TYPE_LABEL,
 } from "@/components/estrategia/theme";
 import RegistrarPublicacionModal from "@/components/estrategia/RegistrarPublicacionModal";
+import PiezaPanel from "@/components/estrategia/PiezaPanel";
+import AnguloView from "@/components/estrategia/AnguloView";
+import AprendizajesDelMes from "@/components/estrategia/AprendizajesDelMes";
 
 // spec §7 — Radar (home fusionado). Consume /api/radar con cache:'no-store'
 // (biblia §15 error #15).
@@ -18,6 +21,9 @@ export default function RadarView({ onVerLinaje }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [openModal, setOpenModal] = useState(false);
+  const [openPiezaId, setOpenPiezaId] = useState(null);
+  const [openAngulo, setOpenAngulo] = useState(null);
+  const [openAprendizajes, setOpenAprendizajes] = useState(false);
 
   const load = async () => {
     setLoading(true); setErr(null);
@@ -47,13 +53,22 @@ export default function RadarView({ onVerLinaje }) {
           <h1 className="text-2xl font-semibold text-stone-800">Radar</h1>
           <p className="text-sm text-stone-500 mt-0.5">últimos 7 días</p>
         </div>
-        <button
-          onClick={() => setOpenModal(true)}
-          className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
-          style={{ background: O }}
-        >
-          <Sparkles size={14} /> Registrar publicación
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setOpenAprendizajes(true)}
+            className="px-4 py-2.5 rounded-xl text-sm font-medium border hover:bg-stone-50"
+            style={{ borderColor: BORDER, color: MU }}
+          >
+            📖 Aprendizajes del mes
+          </button>
+          <button
+            onClick={() => setOpenModal(true)}
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
+            style={{ background: O }}
+          >
+            <Sparkles size={14} /> Registrar publicación
+          </button>
+        </div>
       </div>
 
       {loading && (
@@ -108,7 +123,12 @@ export default function RadarView({ onVerLinaje }) {
             ) : (
               <div className="space-y-2">
                 {pulso.top_piezas.map((p, i) => (
-                  <div key={p.id || i} className="flex items-center gap-3 p-3 rounded-xl border" style={{ borderColor: BORDER }}>
+                  <button
+                    key={p.id || i}
+                    onClick={() => p.id && setOpenPiezaId(p.id)}
+                    className="w-full text-left flex items-center gap-3 p-3 rounded-xl border hover:border-orange-300 transition-colors"
+                    style={{ borderColor: BORDER }}
+                  >
                     <PlatformIcon platform={p.platform} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-stone-800 truncate">{p.title}</p>
@@ -125,7 +145,7 @@ export default function RadarView({ onVerLinaje }) {
                         +{p.subs} sub{p.subs === 1 ? '' : 's'}
                       </span>
                     )}
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -176,11 +196,12 @@ export default function RadarView({ onVerLinaje }) {
             />
             <PatternCard
               title="Qué engancha por ángulo"
-              subtitle="engagement por tipo de ángulo"
+              subtitle="engagement por tipo de ángulo · clickeable"
               rows={patrones?.engagement_por_angulo || []}
               color={LILA}
               bg={LILA_L}
               labelFor={r => ANGLE_TYPE_LABEL[r.key] || r.key}
+              onClickRow={r => setOpenAngulo(r.key)}
             />
           </div>
 
@@ -198,6 +219,31 @@ export default function RadarView({ onVerLinaje }) {
         onClose={() => setOpenModal(false)}
         onCreated={() => { setOpenModal(false); load(); }}
       />
+
+      {openPiezaId && (
+        <PiezaPanel
+          piezaId={openPiezaId}
+          onClose={() => setOpenPiezaId(null)}
+          onOpenMadre={(m) => {
+            setOpenPiezaId(null);
+            if (m?.id && m.type === 'episode') onVerLinaje?.(m.id);
+          }}
+          onOpenPieza={(h) => setOpenPiezaId(h.id)}
+          onOpenAngulo={(a) => { setOpenPiezaId(null); setOpenAngulo(a); }}
+        />
+      )}
+
+      {openAngulo && (
+        <AnguloView
+          angleType={openAngulo}
+          onClose={() => setOpenAngulo(null)}
+          onOpenPieza={(p) => { setOpenAngulo(null); setOpenPiezaId(p.id); }}
+        />
+      )}
+
+      {openAprendizajes && (
+        <AprendizajesDelMes onClose={() => setOpenAprendizajes(false)} />
+      )}
     </div>
   );
 }
@@ -224,7 +270,7 @@ function MetricCard({ label, value, hint, delta, deltaPct, bg }) {
 }
 
 // Barras horizontales que animan del 0 al ancho final al montar.
-function PatternCard({ title, subtitle, rows, color, bg, labelFor }) {
+function PatternCard({ title, subtitle, rows, color, bg, labelFor, onClickRow }) {
   const [progress, setProgress] = useState(false);
   useEffect(() => {
     const t = setTimeout(() => setProgress(true), 60);
@@ -243,8 +289,8 @@ function PatternCard({ title, subtitle, rows, color, bg, labelFor }) {
         <div className="space-y-2.5">
           {rows.map((r, i) => {
             const width = Math.max(6, Math.round(((r.engagement_rate || 0) / max) * 100));
-            return (
-              <div key={r.key || i}>
+            const rowInner = (
+              <>
                 <div className="flex items-center justify-between text-[12px] mb-1">
                   <span className="text-stone-600">{labelFor(r)}</span>
                   <span className="text-stone-500">{r.engagement_rate?.toFixed(1)}%</span>
@@ -260,7 +306,18 @@ function PatternCard({ title, subtitle, rows, color, bg, labelFor }) {
                     }}
                   />
                 </div>
-              </div>
+              </>
+            );
+            return onClickRow ? (
+              <button
+                key={r.key || i}
+                onClick={() => onClickRow(r)}
+                className="w-full text-left rounded-md hover:opacity-90 transition-opacity"
+              >
+                {rowInner}
+              </button>
+            ) : (
+              <div key={r.key || i}>{rowInner}</div>
             );
           })}
         </div>

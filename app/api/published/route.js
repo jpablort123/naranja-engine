@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { buildUtm } from '@/lib/utm';
+import { withProduct, withProductPayload } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
@@ -12,17 +13,19 @@ export const dynamic = 'force-dynamic';
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    let q = db.from('published_items').select('*').order('published_at', { ascending: false, nullsFirst: false });
+    let q = withProduct(db.from('published_items').select('*').order('published_at', { ascending: false, nullsFirst: false }));
     const oid = searchParams.get('origin_id');
     const otype = searchParams.get('origin_type');
     const plat = searchParams.get('platform');
     const ctype = searchParams.get('content_type');
     const from = searchParams.get('from');
     const to = searchParams.get('to');
+    const status = searchParams.get('status');
     if (oid) q = q.eq('origin_id', oid);
     if (otype) q = q.eq('origin_type', otype);
     if (plat) q = q.eq('platform', plat);
     if (ctype) q = q.eq('content_type', ctype);
+    if (status) q = q.eq('status', status);
     if (from) q = q.gte('published_at', from);
     if (to) q = q.lte('published_at', to);
     const { data, error } = await q;
@@ -34,11 +37,14 @@ export async function GET(req) {
 }
 
 // ═══ POST /api/published ═══
-// Crea una pieza publicada. Genera utm_campaign si tiene los datos.
+// Crea una pieza en cualquier estado ('publicada' default | 'propuesta' | 'descartada').
+// Genera utm_campaign si tiene los datos y respeta status/discard_reason.
+// Si status='descartada', además crea un learning draft con la razón (spec §4).
 export async function POST(req) {
   try {
     const body = await req.json();
     const row = { ...body };
+    if (!row.status) row.status = 'publicada';
     if (!row.utm_campaign && row.origin_label && row.content_type && row.platform) {
       row.utm_campaign = buildUtm({
         originLabel: row.origin_label,
@@ -46,13 +52,37 @@ export async function POST(req) {
         platform: row.platform,
       });
     }
-    if (!row.published_at) row.published_at = new Date().toISOString();
-    const { data, error } = await db.from('published_items').insert(row).select().single();
+    if (!row.published_at && row.status === 'publicada') row.published_at = new Date().toISOString();
+    const { data, error } = await db
+      .from('published_items')
+      .insert(withProductPayload(row))
+      .select()
+      .single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Descarte → learning (aprende del "no publicar")
+    if (data.status === 'descartada' && data.discard_reason) {
+      await createLearningForDiscard(data).catch(err => console.error('learning descarte:', err));
+    }
+
     return NextResponse.json({ item: data });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }
+}
+
+async function createLearningForDiscard(item) {
+  const learn = {
+    episode_id: item.origin_type === 'episode' ? item.origin_id : null,
+    newsletter_id: item.origin_type === 'newsletter' ? item.origin_id : null,
+    section: 'descarte',
+    original_content: item.title,
+    feedback: item.discard_reason,
+    proposed_change: null,
+    target_protocol_name: 'general',
+    status: 'draft',
+  };
+  await db.from('learnings').insert(learn);
 }
 
 // ═══ PATCH /api/published?id=<uuid> ═══
@@ -77,6 +107,10 @@ export async function PATCH(req) {
     }
     const { data, error } = await db.from('published_items').update(patch).eq('id', id).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // Si el PATCH la deja como descartada con razón, generamos learning.
+    if (data.status === 'descartada' && data.discard_reason) {
+      await createLearningForDiscard(data).catch(err => console.error('learning descarte:', err));
+    }
     return NextResponse.json({ item: data });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

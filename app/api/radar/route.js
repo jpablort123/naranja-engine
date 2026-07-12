@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { withProduct } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 export const dynamic = 'force-dynamic';
@@ -19,10 +20,12 @@ export async function GET() {
     const d14 = new Date(now.getTime() - 14 * 24 * 3600 * 1000);
 
     const [{ data: items = [] }, { data: metrics = [] }, { data: subs = [] }, { data: episodes = [] }] = await Promise.all([
-      db.from('published_items').select('*'),
+      // published_items filtrado por producto Y por status='publicada' — el Radar
+      // habla de RESULTADOS, no de propuestas ni descartes (spec universo §4).
+      withProduct(db.from('published_items').select('*')).eq('status', 'publicada'),
       db.from('latest_metrics').select('*'),
-      db.from('subscribers').select('*'),
-      db.from('episodes').select('id, name, created_at').order('created_at', { ascending: false }).limit(1),
+      withProduct(db.from('subscribers').select('*')),
+      withProduct(db.from('episodes').select('id, name, created_at').order('created_at', { ascending: false }).limit(1)),
     ]);
 
     // Index métricas por published_item_id → { metric: value }

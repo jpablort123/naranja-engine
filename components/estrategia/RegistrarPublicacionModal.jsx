@@ -17,6 +17,7 @@ export default function RegistrarPublicacionModal({
   onClose,
   onCreated,
   defaultMadre,           // { origin_type, origin_id, origin_label }
+  defaultStatus,          // 'publicada' | 'propuesta' | 'descartada'
   runSyncAfterCreate = true,
 }) {
   const [origin_type, setOriginType] = useState(defaultMadre?.origin_type || 'episode');
@@ -29,6 +30,9 @@ export default function RegistrarPublicacionModal({
   const [creation_source, setCreationSource] = useState('sistema');
   const [published_url, setPublishedUrl] = useState('');
   const [platform_post_id, setPlatformPostId] = useState('');
+  // spec universo §4: selector de status (default publicada).
+  const [status, setStatus] = useState(defaultStatus || 'publicada');
+  const [discard_reason, setDiscardReason] = useState('');
 
   const [episodes, setEpisodes] = useState([]);
   const [newsletters, setNewsletters] = useState([]);
@@ -52,14 +56,16 @@ export default function RegistrarPublicacionModal({
     });
   }, [open]);
 
-  // Sincronizar defaults si cambian (padre puede pre-seleccionar la madre).
+  // Sincronizar defaults si cambian (padre puede pre-seleccionar la madre / status).
   useEffect(() => {
     if (!open) return;
     setOriginType(defaultMadre?.origin_type || 'episode');
     setOriginId(defaultMadre?.origin_id || '');
     setOriginLabel(defaultMadre?.origin_label || '');
+    setStatus(defaultStatus || 'publicada');
+    setDiscardReason('');
     setTitle(''); setPublishedUrl(''); setPlatformPostId(''); setErr(null); setCreated(null);
-  }, [open, defaultMadre]);
+  }, [open, defaultMadre, defaultStatus]);
 
   // Cerrar con Escape.
   useEffect(() => {
@@ -78,25 +84,32 @@ export default function RegistrarPublicacionModal({
       setErr('Título, tipo de contenido y plataforma son requeridos');
       return;
     }
+    if (status === 'descartada' && !discard_reason.trim()) {
+      setErr('Contame la razón del descarte (aunque sea una línea).');
+      return;
+    }
     setCreating(true); setErr(null);
     try {
       const body = {
         title: title.trim(),
         content_type,
         platform,
-        published_url: published_url.trim() || null,
+        published_url: status === 'publicada' ? (published_url.trim() || null) : null,
         platform_post_id: platform_post_id.trim() || null,
         origin_type,
         origin_id: origin_type === 'manual' ? null : (origin_id || null),
         origin_label: origin_label || (madresList.find(x => x.id === origin_id)?.name || null),
         angle_type,
         creation_source,
+        status,
+        discard_reason: status === 'descartada' ? discard_reason.trim() : null,
       };
       const r = await api('/api/published', { method: 'POST', body: JSON.stringify(body) });
       if (r?.error) throw new Error(r.error);
       setCreated(r.item);
-      if (runSyncAfterCreate && r?.item?.id) {
-        // Best-effort: siembra métricas del mock para que la pieza aparezca con números.
+      if (runSyncAfterCreate && r?.item?.id && r.item.status === 'publicada') {
+        // Solo sembramos métricas cuando la pieza YA está publicada (las
+        // propuestas/descartes no tienen datos que capturar).
         api('/api/metrics/sync', { method: 'POST', body: JSON.stringify({ published_item_ids: [r.item.id] }) }).catch(() => {});
       }
       onCreated?.(r.item);
@@ -170,6 +183,34 @@ export default function RegistrarPublicacionModal({
             </>
           ) : (
             <>
+              <Field label="Estado">
+                <div className="flex gap-2">
+                  {[
+                    { key: 'publicada', label: 'Publicada', bg: GL, color: GR },
+                    { key: 'propuesta', label: 'Propuesta', bg: OL, color: O },
+                    { key: 'descartada', label: 'Descartada', bg: '#F5F5F4', color: MU },
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      onClick={() => setStatus(opt.key)}
+                      className="flex-1 py-2 rounded-lg text-xs font-medium border transition-colors"
+                      style={{
+                        borderColor: status === opt.key ? opt.color : BORDER,
+                        background: status === opt.key ? opt.bg : 'white',
+                        color: status === opt.key ? opt.color : '#57534E',
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-stone-400 mt-1.5">
+                  {status === 'publicada' && 'Ya la publicaste, con URL y todo.'}
+                  {status === 'propuesta' && 'Idea del sistema para producir después. Sin URL.'}
+                  {status === 'descartada' && 'Decidiste no publicarla; guardamos la razón como aprendizaje.'}
+                </p>
+              </Field>
+
               <Field label="De qué madre viene">
                 <div className="flex gap-2 mb-2">
                   {['episode', 'newsletter', 'manual'].map(t => (
@@ -279,15 +320,29 @@ export default function RegistrarPublicacionModal({
                 </Field>
               </div>
 
-              <Field label="Link publicado (opcional)">
-                <input
-                  value={published_url}
-                  onChange={e => setPublishedUrl(e.target.value)}
-                  placeholder="https://…"
-                  className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:border-orange-300"
-                  style={{ borderColor: BORDER }}
-                />
-              </Field>
+              {status === 'publicada' && (
+                <Field label="Link publicado (opcional)">
+                  <input
+                    value={published_url}
+                    onChange={e => setPublishedUrl(e.target.value)}
+                    placeholder="https://…"
+                    className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:border-orange-300"
+                    style={{ borderColor: BORDER }}
+                  />
+                </Field>
+              )}
+              {status === 'descartada' && (
+                <Field label="Razón del descarte">
+                  <textarea
+                    value={discard_reason}
+                    onChange={e => setDiscardReason(e.target.value)}
+                    placeholder="¿Por qué decidiste no publicarla? Se guarda como aprendizaje draft."
+                    rows={3}
+                    className="w-full px-3 py-2 text-sm border rounded-lg focus:outline-none focus:border-orange-300 resize-y"
+                    style={{ borderColor: BORDER }}
+                  />
+                </Field>
+              )}
 
               <Field label="ID de plataforma (opcional)">
                 <input

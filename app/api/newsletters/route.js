@@ -1,10 +1,13 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { withProduct, withProductPayload } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
-// GET /api/newsletters         → lista
-// GET /api/newsletters?id=...  → individual
+export const dynamic = 'force-dynamic';
+
+// GET /api/newsletters         → lista (filtrada por producto)
+// GET /api/newsletters?id=...  → individual (id ya es único, no requiere filtro)
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
@@ -13,7 +16,9 @@ export async function GET(req) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json(data);
   }
-  const { data, error } = await db.from('newsletters').select('*').order('created_at', { ascending: false });
+  const { data, error } = await withProduct(
+    db.from('newsletters').select('*').order('created_at', { ascending: false })
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
@@ -25,7 +30,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'name y articulo son requeridos' }, { status: 400 });
   }
   const { data, error } = await db.from('newsletters')
-    .insert({ name: name.trim(), articulo, status: 'draft' })
+    .insert(withProductPayload({ name: name.trim(), articulo, status: 'draft' }))
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

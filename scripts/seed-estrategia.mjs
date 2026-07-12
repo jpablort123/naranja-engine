@@ -16,6 +16,8 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+// spec universo §7 — todo insert debe llevar product_id.
+const PRODUCT_ID = process.env.CURRENT_PRODUCT_ID || 'c0000000-0000-4000-8000-000000000001';
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
   console.error('Falta NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY (usa .env.local).');
@@ -53,23 +55,35 @@ async function main() {
   }
   console.log(`Usando ${eps.length} episodio(s):`, eps.map(e => e.name).join(' · '));
 
-  // 1) published_items — ~11 piezas repartidas
+  // 1) published_items — mezcla de estados publicada / propuesta / descartada
+  //    para poder ver los 3 estados vivos en el Universo (spec universo §11).
   const items = [];
+  // spec: [content_type, título, ángulo, creation_source, díasAtrás, status, discardReason?]
   const specs = [
-    ['reel', 'La trampa del ROAS', 'errores_mitos', 'minado_sistema', 2],
-    ['reel', '3 datos que rompen creencias', 'datos_duros', 'sistema', 4],
-    ['carrusel', 'Cómo decidieron cambiar la estrategia', 'tras_la_decision', 'sistema', 5],
-    ['linkedin', 'La confesión de una CMO', 'historia_personal', 'idea_propia', 6],
-    ['mediano', 'Pandemia y 13 marcas', 'datos_duros', 'sistema', 8],
-    ['corto', 'Frase que todo marketer debe escuchar', 'otro', 'sistema', 3],
-    ['reel', 'Mito: el CTR importa más que el LTV', 'errores_mitos', 'mixto', 1],
-    ['episodio', null, null, null, 10],       // pieza "episodio" con métricas propias
-    ['carrusel', 'Errores comunes al lanzar producto', 'errores_mitos', 'sistema', 12],
-    ['reel', 'La historia detrás del pivote', 'historia_personal', 'minado_sistema', 9],
-    ['linkedin', 'Datos duros del último año', 'datos_duros', 'idea_propia', 11],
+    // Publicadas — mayoría (con métricas del mock)
+    ['reel', 'La trampa del ROAS', 'errores_mitos', 'minado_sistema', 2, 'publicada'],
+    ['reel', '3 datos que rompen creencias', 'datos_duros', 'sistema', 4, 'publicada'],
+    ['carrusel', 'Cómo decidieron cambiar la estrategia', 'tras_la_decision', 'sistema', 5, 'publicada'],
+    ['linkedin', 'La confesión de una CMO', 'historia_personal', 'idea_propia', 6, 'publicada'],
+    ['mediano', 'Pandemia y 13 marcas', 'datos_duros', 'sistema', 8, 'publicada'],
+    ['corto', 'Frase que todo marketer debe escuchar', 'otro', 'sistema', 3, 'publicada'],
+    ['reel', 'Mito: el CTR importa más que el LTV', 'errores_mitos', 'mixto', 1, 'publicada'],
+    ['episodio', null, null, null, 10, 'publicada'],
+    ['carrusel', 'Errores comunes al lanzar producto', 'errores_mitos', 'sistema', 12, 'publicada'],
+    ['reel', 'La historia detrás del pivote', 'historia_personal', 'minado_sistema', 9, 'publicada'],
+    ['linkedin', 'Datos duros del último año', 'datos_duros', 'idea_propia', 11, 'publicada'],
+    // Propuestas — piezas del sistema que aún no se produjeron
+    ['reel', 'El momento en el que se equivocaron', 'tras_la_decision', 'sistema', null, 'propuesta'],
+    ['mediano', 'Las 3 métricas que sí importan', 'datos_duros', 'sistema', null, 'propuesta'],
+    ['linkedin', 'Por qué la audiencia no es un número', 'errores_mitos', 'sistema', null, 'propuesta'],
+    // Descartadas — con razón (crean learning draft en el server)
+    ['reel', 'Top 5 tips para marketers', 'otro', 'sistema', null, 'descartada',
+      'Demasiado genérico — no es lo que hacemos, se siente clickbait.'],
+    ['carrusel', 'Cómo hacer growth hacking', 'otro', 'sistema', null, 'descartada',
+      'El término no encaja con el editorial. Rechazamos ángulos de "hack".'],
   ];
   for (let i = 0; i < specs.length; i++) {
-    const [ct, titleBase, angle, source, days] = specs[i];
+    const [ct, titleBase, angle, source, days, status, discardReason] = specs[i];
     const ep = eps[i % eps.length];
     const title = titleBase ? `${labelForType(ct)} — ${titleBase}` : `Episodio: ${ep.name}`;
     const platform = PLATFORMS[ct];
@@ -77,7 +91,7 @@ async function main() {
       title,
       content_type: ct,
       platform,
-      published_url: `https://example.com/${slug(title) || 'x'}`,
+      published_url: status === 'publicada' ? `https://example.com/${slug(title) || 'x'}` : null,
       platform_post_id: null,
       utm_campaign: utm(ep.name, ct, platform),
       origin_type: 'episode',
@@ -85,14 +99,20 @@ async function main() {
       origin_label: ep.name,
       angle_type: angle,
       creation_source: source,
-      published_at: daysAgoISO(days),
+      status,
+      discard_reason: discardReason || null,
+      published_at: status === 'publicada' && days != null ? daysAgoISO(days) : null,
+      product_id: PRODUCT_ID,
     });
   }
-  const { data: inserted, error: pubErr } = await db.from('published_items').insert(items).select('id');
+  const { data: inserted, error: pubErr } = await db.from('published_items').insert(items).select('id, status');
   if (pubErr) throw new Error('published_items: ' + pubErr.message);
-  console.log(`+ ${inserted.length} published_items`);
+  const conteo = (inserted || []).reduce((a, x) => (a[x.status] = (a[x.status] || 0) + 1, a), {});
+  console.log(`+ ${inserted.length} published_items (${conteo.publicada || 0} publicada, ${conteo.propuesta || 0} propuesta, ${conteo.descartada || 0} descartada)`);
 
   // 2) subscribers — ~40, fechas repartidas en las últimas 2 semanas
+  // Solo atribuye a piezas publicadas (evita atribuir a propuesta/descartada).
+  const publicadasIds = (inserted || []).filter(x => x.status === 'publicada').map(x => x.id);
   const subs = [];
   for (let i = 0; i < 40; i++) {
     const days = Math.floor(Math.random() * 14);
@@ -105,8 +125,8 @@ async function main() {
       cargo: withEnrich ? pick(['CMO', 'Founder', 'Marketing Manager', 'Growth Lead']) : null,
       empresa: withEnrich ? pick(['Rappi', 'Truora', 'Merqueo', 'Habi', 'Chiper']) : null,
       is_target: withEnrich ? true : null,
-      // Atribuir algunos a piezas al azar
-      attributed_item_id: i < 8 ? inserted[i % inserted.length].id : null,
+      attributed_item_id: i < 8 && publicadasIds.length > 0 ? publicadasIds[i % publicadasIds.length] : null,
+      product_id: PRODUCT_ID,
     });
   }
   const { error: subErr } = await db.from('subscribers').insert(subs);

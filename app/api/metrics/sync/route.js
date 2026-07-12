@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { fetchMetricsForItem } from '@/lib/metrics';
+import { withProduct } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 export const runtime = 'nodejs';
@@ -17,7 +18,9 @@ export async function POST(req) {
     const body = await req.json().catch(() => ({}));
     const ids = Array.isArray(body?.published_item_ids) ? body.published_item_ids : null;
 
-    let q = db.from('published_items').select('*');
+    // Solo sincronizamos piezas publicadas del producto activo.
+    // (Las propuestas y descartes no tienen post en las plataformas.)
+    let q = withProduct(db.from('published_items').select('*')).eq('status', 'publicada');
     if (ids && ids.length > 0) q = q.in('id', ids);
     const { data: items, error } = await q;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

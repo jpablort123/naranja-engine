@@ -1,13 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { withProduct, withProductPayload } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+export const dynamic = 'force-dynamic';
 
 // GET - list ideas (optionally filtered by category)
 export async function GET(req) {
   const { searchParams } = new URL(req.url);
   const category = searchParams.get('category');
-  let q = db.from('ideas').select('*').order('position', { ascending: true }).order('created_at', { ascending: false });
+  let q = withProduct(db.from('ideas').select('*').order('position', { ascending: true }).order('created_at', { ascending: false }));
   if (category) q = q.eq('category', category);
   const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -17,7 +19,7 @@ export async function GET(req) {
 // POST - create a new idea
 export async function POST(req) {
   const body = await req.json();
-  const { data, error } = await db.from('ideas').insert({
+  const { data, error } = await db.from('ideas').insert(withProductPayload({
     title: body.title || 'Nueva idea',
     description: body.description || null,
     notes: body.notes || null,
@@ -33,7 +35,7 @@ export async function POST(req) {
     prompt_notes: body.prompt_notes || null,
     parent_id: body.parent_id || null,
     position: body.position ?? 0,
-  }).select().single();
+  })).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

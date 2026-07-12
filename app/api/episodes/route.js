@@ -1,17 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { CURRENT_PRODUCT_ID, withProduct, withProductPayload } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
-  const { data, error } = await db.from('episodes').select('*').order('created_at', { ascending: false });
+  // Filtra por producto (spec universo §7). Compat: filas viejas backfilleadas
+  // vía la migración de sprint-universo.sql.
+  const q = withProduct(db.from('episodes').select('*').order('created_at', { ascending: false }));
+  const { data, error } = await q;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }
 
 export async function POST(req) {
   const { name, transcript } = await req.json();
-  const { data, error } = await db.from('episodes').insert({ name, transcript, status: 'draft' }).select().single();
+  const { data, error } = await db
+    .from('episodes')
+    .insert(withProductPayload({ name, transcript, status: 'draft' }))
+    .select()
+    .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
 }

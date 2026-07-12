@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import Papa from 'papaparse';
 import { buildUtm } from '@/lib/utm';
+import { withProduct, withProductPayload } from '@/lib/product';
 
 // Necesita runtime Node para parsear CSV/XLSX y trabajar con text/multipart cómodo.
 export const runtime = 'nodejs';
@@ -45,8 +46,8 @@ export async function POST(req) {
 
     // Prefetch de episodios/newsletters para resolver origin_id por label.
     const [{ data: episodes }, { data: newsletters }] = await Promise.all([
-      db.from('episodes').select('id, name'),
-      db.from('newsletters').select('id, name'),
+      withProduct(db.from('episodes').select('id, name')),
+      withProduct(db.from('newsletters').select('id, name')),
     ]);
     const findByLabel = (list, label) => {
       if (!label) return null;
@@ -97,7 +98,7 @@ export async function POST(req) {
     let inserted = 0;
     for (let i = 0; i < inserts.length; i += 200) {
       const chunk = inserts.slice(i, i + 200);
-      const { data, error } = await db.from('published_items').insert(chunk).select('id');
+      const { data, error } = await db.from('published_items').insert(withProductPayload(chunk)).select('id');
       if (error) return NextResponse.json({ error: error.message, insertados_parciales: inserted }, { status: 500 });
       inserted += (data || []).length;
     }

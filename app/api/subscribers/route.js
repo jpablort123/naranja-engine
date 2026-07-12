@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { withProduct } from '@/lib/product';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 export const dynamic = 'force-dynamic';
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req) {
   try {
     const { searchParams } = new URL(req.url);
-    let q = db.from('subscribers').select('*').order('subscribed_at', { ascending: false, nullsFirst: false });
+    let q = withProduct(db.from('subscribers').select('*').order('subscribed_at', { ascending: false, nullsFirst: false }));
     const status = searchParams.get('status');
     if (status) q = q.eq('status', status);
     const { data, error } = await q;
