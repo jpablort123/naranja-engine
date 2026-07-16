@@ -204,6 +204,84 @@ pero YouTube real, deja `METRICS_PROVIDER=youtube`: los stubs de
 Metricool/Spotify devuelven `[]` sin errores. Cuando implementes uno, el
 enrutamiento ya está listo en `lib/metrics/index.js`.
 
+## (d) Cómo activar Metricool (Instagram · LinkedIn · TikTok)
+
+`lib/metrics/metricool.js` ya no es stub — usa la API v2 de Metricool
+(`https://app.metricool.com/api/v2/analytics/posts/{network}`) con las 3
+credenciales del plan Advanced. El ruteo por plataforma en `index.js` no
+cambia: cuando `METRICS_PROVIDER != 'mock'`, IG/LinkedIn/TikTok van a este
+provider automáticamente.
+
+1. **Envs** (`.env.local` y Vercel):
+   ```
+   METRICS_PROVIDER=real       # cualquier valor != 'mock' activa los providers
+   METRICOOL_TOKEN=<tu token de la API Metricool>
+   METRICOOL_USER_ID=<userId>
+   METRICOOL_BLOG_ID=<blogId del brand/workspace>
+
+   # opcional — ventana hacia atrás para pedir posts (default 180 días)
+   METRICOOL_WINDOW_DAYS=180
+   ```
+   El token va en el header `X-Mc-Auth` **y** en el query param
+   `userToken` — Metricool exige las dos formas. Con cualquier credencial
+   faltante, el provider loggea un warn y devuelve `[]` (nunca tumba el sync).
+
+2. **Sync**:
+   ```bash
+   curl -X POST http://localhost:3000/api/metrics/sync \
+     -H 'content-type: application/json' -d '{}'
+   ```
+   Como el endpoint de Metricool devuelve **todos** los posts del rango en
+   una sola llamada, el provider **cachea** por (network, ventana) dentro
+   del proceso Node. Un sync que procesa 30 piezas de Instagram pega a
+   Metricool una sola vez, no 30. El cache se auto-invalida a los 5 min.
+
+3. **Chequeo rápido**: para una pieza de Instagram registrada con
+   `published_url = https://www.instagram.com/p/CxYz123/`, el `PiezaPanel`
+   debería mostrar reach + engagement_rate + likes/comments/shares/saves
+   reales. Si la pieza no aparece, revisa los puntos de matching abajo.
+
+### Detalles del matching por URL (importante para el dev)
+
+- El provider normaliza URLs antes de comparar: lowercase, sin `www.`, sin
+  trailing slash, **sin query string ni fragment**. Compara host+path
+  (ignora http vs https).
+- Prioridad de match:
+  1. URL normalizada exacta.
+  2. Fallback: última parte del path (ej. el shortcode `CxYz123` de IG).
+  3. Fallback: `platform_post_id` contra los ids que devuelve Metricool
+     (`id`, `postId`, `mediaId`, `activityId`, `videoId`).
+- Si registras la pieza en el CMO Engine con un **shortlink de Metricool**
+  (`mtr.cool/...`) mientras Metricool guarda la URL final del post, el
+  match falla. Recomendación: registrar con la URL canónica de la red.
+- Instagram exige el permalink completo: `/p/{shortcode}/` o
+  `/reel/{shortcode}/`. LinkedIn: `/posts/{slug}` o `/feed/update/urn:li:activity:{id}`.
+  TikTok: `/@{user}/video/{id}`.
+- Si registraste la URL con parámetros UTM (por ejemplo desde la barra del
+  browser tras un clic), la normalización los quita — el match sigue
+  funcionando.
+- La ventana por defecto son 180 días. Si tienes piezas más viejas y
+  necesitas re-sincronizarlas, subí `METRICOOL_WINDOW_DAYS`.
+
+### Mapeo de campos (por si la API cambia sus nombres)
+
+Metricool cambia nombres de campos entre redes. El provider intenta varios
+alias por métrica y usa el primero disponible:
+
+| métrica destino | alias que probamos |
+|---|---|
+| `reach` | `reach`, `uniqueImpressions` |
+| `impressions` | `impressions`, `views`, `videoViews` |
+| `views` (solo TikTok) | `videoViews`, `plays`, `videoPlays` |
+| `likes` | `likes`, `reactions`, `likesCount` |
+| `comments` | `comments`, `commentsCount` |
+| `shares` | `shares`, `reposts`, `shareCount` |
+| `saves` | `saves`, `saved`, `savedCount` |
+| `engagement_rate` | `engagementRate`, `engagement_rate`, `engagement` (se normaliza a %; si viene como fracción ≤1 se multiplica por 100). Si no vino, se deriva: `(likes+comments+shares+saves) / (reach || impressions) * 100` |
+
+Si un día Metricool renombra un campo o agrega uno nuevo (ej. `newSaves`),
+solo hay que sumarlo a la lista de alias en `mapPostToMetrics()`.
+
 ## Guardrales cumplidos
 
 - No rompí el flujo de producción — todas las tabs viejas siguen ahí; la
