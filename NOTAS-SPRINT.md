@@ -206,81 +206,131 @@ enrutamiento ya está listo en `lib/metrics/index.js`.
 
 ## (d) Cómo activar Metricool (Instagram · LinkedIn · TikTok)
 
-`lib/metrics/metricool.js` ya no es stub — usa la API v2 de Metricool
-(`https://app.metricool.com/api/v2/analytics/posts/{network}`) con las 3
-credenciales del plan Advanced. El ruteo por plataforma en `index.js` no
-cambia: cuando `METRICS_PROVIDER != 'mock'`, IG/LinkedIn/TikTok van a este
-provider automáticamente.
+`lib/metrics/metricool.js` usa la API v2 de Metricool contra 4 endpoints
+distintos (confirmados con el swagger oficial + tests curl reales contra
+las creds del proyecto). Se activa cuando `METRICS_PROVIDER != 'mock'`.
 
-1. **Envs** (`.env.local` y Vercel):
-   ```
-   METRICS_PROVIDER=real       # cualquier valor != 'mock' activa los providers
-   METRICOOL_TOKEN=<tu token de la API Metricool>
-   METRICOOL_USER_ID=<userId>
-   METRICOOL_BLOG_ID=<blogId del brand/workspace>
+**Endpoints (base `https://app.metricool.com/api`):**
 
-   # opcional — ventana hacia atrás para pedir posts (default 180 días)
-   METRICOOL_WINDOW_DAYS=180
-   ```
-   El token va en el header `X-Mc-Auth` **y** en el query param
-   `userToken` — Metricool exige las dos formas. Con cualquier credencial
-   faltante, el provider loggea un warn y devuelve `[]` (nunca tumba el sync).
+| Pieza | Endpoint | Notas |
+|---|---|---|
+| IG reels | `GET /v2/analytics/reels/instagram` | La mayoría del contenido de IG del CMO Engine |
+| IG posts (single/carousel) | `GET /v2/analytics/posts/instagram` | URLs `/p/{shortcode}/` |
+| LinkedIn posts | `GET /v2/analytics/posts/linkedin` | Ver limitación de matching abajo |
+| TikTok videos | `GET /v2/analytics/posts/tiktok` | Aunque el swagger lo llame "CSV", devuelve JSON `{data: [...]}` |
 
-2. **Sync**:
-   ```bash
-   curl -X POST http://localhost:3000/api/metrics/sync \
-     -H 'content-type: application/json' -d '{}'
-   ```
-   Como el endpoint de Metricool devuelve **todos** los posts del rango en
-   una sola llamada, el provider **cachea** por (network, ventana) dentro
-   del proceso Node. Un sync que procesa 30 piezas de Instagram pega a
-   Metricool una sola vez, no 30. El cache se auto-invalida a los 5 min.
+Todos requieren query params obligatorios: `userId`, `blogId`, `from`,
+`to` (ISO 8601, ej. `2026-07-16T23:59:59`). Auth por header
+**`X-Mc-Auth: <token>`** (el token NO se manda como query — con header
+alcanza; el ruteo antiguo con `userToken` en query es opcional y lo
+quité).
 
-3. **Chequeo rápido**: para una pieza de Instagram registrada con
-   `published_url = https://www.instagram.com/p/CxYz123/`, el `PiezaPanel`
-   debería mostrar reach + engagement_rate + likes/comments/shares/saves
-   reales. Si la pieza no aparece, revisa los puntos de matching abajo.
+### Envs
 
-### Detalles del matching por URL (importante para el dev)
+```
+METRICS_PROVIDER=real     # cualquier valor != 'mock' activa los providers reales
+METRICOOL_TOKEN=<token de la API Metricool (Account Settings → API)>
+METRICOOL_USER_ID=<userId>
+METRICOOL_BLOG_ID=<blogId del brand/workspace>
 
-- El provider normaliza URLs antes de comparar: lowercase, sin `www.`, sin
-  trailing slash, **sin query string ni fragment**. Compara host+path
-  (ignora http vs https).
-- Prioridad de match:
-  1. URL normalizada exacta.
-  2. Fallback: última parte del path (ej. el shortcode `CxYz123` de IG).
-  3. Fallback: `platform_post_id` contra los ids que devuelve Metricool
-     (`id`, `postId`, `mediaId`, `activityId`, `videoId`).
-- Si registras la pieza en el CMO Engine con un **shortlink de Metricool**
-  (`mtr.cool/...`) mientras Metricool guarda la URL final del post, el
-  match falla. Recomendación: registrar con la URL canónica de la red.
-- Instagram exige el permalink completo: `/p/{shortcode}/` o
-  `/reel/{shortcode}/`. LinkedIn: `/posts/{slug}` o `/feed/update/urn:li:activity:{id}`.
-  TikTok: `/@{user}/video/{id}`.
-- Si registraste la URL con parámetros UTM (por ejemplo desde la barra del
-  browser tras un clic), la normalización los quita — el match sigue
-  funcionando.
-- La ventana por defecto son 180 días. Si tienes piezas más viejas y
-  necesitas re-sincronizarlas, subí `METRICOOL_WINDOW_DAYS`.
+# opcional (default 365 días — subilo si estás re-sincronizando piezas viejas)
+METRICOOL_WINDOW_DAYS=365
+
+# opcional — imprime "MATCH/NO MATCH" por pieza durante el sync
+METRICOOL_DEBUG=1
+```
+
+Sin cualquiera de las 3 creds, el provider devuelve `[]` silenciosamente.
+Nunca tumba el sync.
+
+### Sync
+
+```bash
+curl -X POST http://localhost:3000/api/metrics/sync \
+  -H 'content-type: application/json' -d '{}'
+```
+
+En el proyecto real, el sync procesa ~137 piezas y hoy inserta ~700
+snapshots (~5 métricas por pieza matcheada). Cada endpoint se llama **una
+sola vez** por ventana gracias al cache in-memory de 5 min — un sync con
+40 reels de IG pega a Metricool 1 vez, no 40.
+
+### Ruteo pieza → endpoint
+
+- `platform='linkedin'` → `posts/linkedin`.
+- `platform='tiktok'` → `posts/tiktok`.
+- `platform='instagram'` → decidido por URL:
+  - URL contiene `/reel/` o `/reels/` → `reels/instagram`.
+  - URL contiene `/p/` → `posts/instagram`.
+  - Sin URL clara: se decide por `content_type` (`reel`/`corto` → reels;
+    `carrusel`/`carousel`/`post` → posts).
+  - Como último recurso, prueba los dos endpoints en orden (reels primero).
+
+### Matching pieza ↔ post de Metricool
+
+1. URL normalizada exacta (lowercase, sin `www.`, sin trailing slash,
+   sin query, sin fragment; compara `host+path`).
+2. Última parte del path (`{shortcode}` de IG, `{videoId}` de TikTok).
+3. `platform_post_id` contra `postId`/`reelId`/`videoId` de Metricool.
+4. IDs numéricos largos (≥15 dígitos) presentes en el URL del item vs
+   presentes en `postId`/URL de Metricool.
+
+### ⚠️ Limitación conocida — LinkedIn
+
+Los URLs que LinkedIn muestra en el botón "compartir" tienen esta forma:
+
+```
+https://www.linkedin.com/posts/{autor}_...-activity-7466162126324232192-XXXX
+```
+
+Metricool, en cambio, devuelve las publicaciones con:
+
+```
+"postId": "urn:li:share:7483145458056507392"
+"url":    "https://www.linkedin.com/feed/update/urn:li:share:7483145458056507392"
+```
+
+**`activity-{ID}` y `urn:li:share:{ID}` son IDs distintos para la misma
+publicación** (LinkedIn asigna ambos al crearla). Verificado empíricamente:
+ninguno de los 4 activity-IDs registrados coincide con los 48 share-IDs
+que devuelve Metricool → **esos posts NO matchean por diseño**.
+
+Opciones para el equipo editorial:
+- **Registrar el URL "feed/update/urn:li:share:{ID}"** cuando aparezca
+  (algunas variantes del botón compartir lo muestran). Ese sí matchea.
+- Aceptar el gap: hoy ~13 posts de LinkedIn quedan sin métrica; el resto
+  (IG reels 43, IG posts 1, TikTok 50) sí trae datos reales.
+- Futuro: si Metricool añade un campo `activityId` a `LinkedinPost`,
+  agregarlo al array de `postId(post)` en `metricool.js` y el fallback #3
+  matchea automáticamente.
+
+Los shortlinks de Metricool (`mtr.cool/...`) tampoco matchean — siempre
+registrar con la URL canónica de la red.
 
 ### Mapeo de campos (por si la API cambia sus nombres)
 
-Metricool cambia nombres de campos entre redes. El provider intenta varios
-alias por métrica y usa el primero disponible:
+Campos confirmados con la API real (los primeros son los que Metricool
+devuelve hoy; los siguientes son alias defensivos):
 
-| métrica destino | alias que probamos |
+| métrica destino | alias que probamos (en orden) |
 |---|---|
 | `reach` | `reach`, `uniqueImpressions` |
-| `impressions` | `impressions`, `views`, `videoViews` |
-| `views` (solo TikTok) | `videoViews`, `plays`, `videoPlays` |
-| `likes` | `likes`, `reactions`, `likesCount` |
-| `comments` | `comments`, `commentsCount` |
-| `shares` | `shares`, `reposts`, `shareCount` |
-| `saves` | `saves`, `saved`, `savedCount` |
-| `engagement_rate` | `engagementRate`, `engagement_rate`, `engagement` (se normaliza a %; si viene como fracción ≤1 se multiplica por 100). Si no vino, se deriva: `(likes+comments+shares+saves) / (reach || impressions) * 100` |
+| `impressions` | `impressions`, `impressionsTotal` |
+| `views` (TikTok/IG video) | `viewCount`, `videoViews`, `views` |
+| `likes` | `likes`, `likeCount` |
+| `comments` | `comments`, `commentCount` |
+| `shares` | `shares`, `shareCount`, `reposts` |
+| `saves` | `saved`, `saves`, `savedCount` |
+| `engagement_rate` | `engagement`, `engagementRate` (se normaliza a %; si viene como fracción ≤1 se multiplica por 100). Si no vino, se deriva: `(likes+comments+shares+saves) / (reach || impressions || views) * 100` |
 
-Si un día Metricool renombra un campo o agrega uno nuevo (ej. `newSaves`),
-solo hay que sumarlo a la lista de alias en `mapPostToMetrics()`.
+Si un día Metricool renombra un campo o agrega uno nuevo, solo hay que
+sumarlo a la lista de alias en `mapPost()`.
+
+### Nota sobre newsletters / substack
+
+`lib/metrics/index.js` ya NO cae al mock para plataformas sin provider.
+Las piezas de Substack (newsletters) devuelven `[]` — sin métrica falsa.
+Cuando exista un provider real, agregarlo al `byPlatform` de `index.js`.
 
 ## Guardrales cumplidos
 
