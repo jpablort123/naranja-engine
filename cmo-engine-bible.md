@@ -1,6 +1,6 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 17 Julio 2026 · versión de la app: **v0.8 (Sprint Universo, en producción)**
+### Última actualización: 17 Julio 2026 · versión de la app: **v0.9 (Sprint Publicación, en rama `sprint-publicacion` — pendiente de merge)**
 
 ---
 
@@ -26,6 +26,8 @@ Después del Sprint Estrategia (v0.7) y del Sprint Universo (v0.8), el sistema *
 **La Parrilla se DISOLVIÓ** (decisión tomada en el Sprint Universo). Estaba confundiendo 3 trabajos distintos: (1) planear/programar → se va a **Metricool** (no reconstruir); (2) seguimiento de producción → es el estado del nodo, sin checklist de pipeline; (3) registro de lo publicado + resultados → **es el Universo**. No queda una "parrilla". El acto de publicación (pegar link / descartar con razón) es la bisagra que gradúa un episodio de taller a universo, y ocurre en el mapa. Ver §10.
 
 **Narrar** es una tercera postura (además de producir y observar): convertir el universo en una historia caminada para una audiencia (cliente, equipo). Es la superficie de venta/retención de la agencia. Ya existe un **preview** vivo — "Aprendizajes del mes" (§4 Sprint Universo). El modo Narrar completo es futuro.
+
+**Publicar ≠ crear (v0.9).** El Sprint Publicación cerró el ciclo con el modelo correcto: **publicar es marcar como publicada una pieza que ya existe** (la propuesta que nació de la producción) y pegarle el link. El equipo NO re-ingresa ángulo/madre/tipo — todo eso viaja heredado desde la tab de producción. La trazabilidad propuesta → publicada / descartada se vuelve automática. El modal viejo "Registrar publicación" (que además tiraba client-side exception) fue **retirado** — su función la cubren la vista **Publicaciones** (para lo que salió) y **"+ contenido original"** (para lo que la copy hizo por fuera del sistema). Ver §4 Sprint Publicación.
 
 ### 1.2 Qué es CMO Engine (descripción funcional)
 
@@ -89,7 +91,8 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 products (id UUID PK, name TEXT, slug TEXT UNIQUE, created_at)
 -- 1 fila: CMO Stories con UUID fijo c0000000-0000-4000-8000-000000000001 (constante).
 
-published_items (id UUID PK, title TEXT, content_type TEXT, platform TEXT, published_url TEXT, platform_post_id TEXT, utm_campaign TEXT, origin_type TEXT, origin_id UUID, origin_label TEXT, angle_type TEXT, creation_source TEXT, published_at TIMESTAMPTZ, status TEXT default 'publicada', discard_reason TEXT, product_id UUID default 'c0000000-0000-4000-8000-000000000001', created_at, updated_at)
+published_items (id UUID PK, title TEXT, content_type TEXT, platform TEXT, published_url TEXT, platform_post_id TEXT, utm_campaign TEXT, origin_type TEXT, origin_id UUID, origin_label TEXT, angle_type TEXT, creation_source TEXT, published_at TIMESTAMPTZ, status TEXT default 'publicada', discard_reason TEXT, content_group_id UUID, libreto TEXT, origin_ref TEXT, product_id UUID default 'c0000000-0000-4000-8000-000000000001', created_at, updated_at)
+-- v0.9 (Sprint Publicación) agrega: content_group_id + libreto + origin_ref (índices en content_group_id y origin_ref).
 
 metric_snapshots (id UUID PK, published_item_id UUID FK → published_items ON DELETE CASCADE, platform TEXT, metric TEXT, value NUMERIC, captured_at TIMESTAMPTZ, created_at)
 
@@ -144,13 +147,20 @@ latest_metrics AS
 - `latest_metrics` (vista) → devuelve la última métrica por `(published_item_id, metric)`. Es la fuente para Radar, PiezaPanel, Linaje.
 - `product_id` en `episodes / newsletters / ideas / published_items / subscribers` → siempre setearlo en inserts nuevos (usar `withProductPayload` de `lib/product.js`); todo read filtra por `CURRENT_PRODUCT_ID` (usar `withProduct`). Nullable con DEFAULT al UUID de CMO, para no romper inserts viejos.
 
+### Columnas del Sprint Publicación (v0.9)
+- `published_items.content_group_id` (UUID, nullable) → agrupa **hermanas** del mismo video/concepto publicado en varias redes. Cuando la PM publica un video en IG+TT+YT-Shorts desde la vista Publicaciones, las 3 filas nacen con el mismo UUID. En el Universo y en el Radar esas hermanas se colapsan en UNA sola tarjeta con desglose por plataforma — arregla el "veo repetidas" y evita doble contabilidad de reach/engagement. Piezas sueltas sin hermanas también reciben un UUID nuevo (por si crecen luego).
+- `published_items.libreto` (TEXT, nullable) → texto original del contenido cuando la copy lo pega en "+ contenido original" (`creation_source='idea_propia'`). Se guarda como **semilla** para el futuro motor de aprendizaje; hoy sólo se usa para pedirle a Claude que sugiera el `angle_type` (`POST /api/publicaciones/sugerir-angulo`). No se procesa más allá.
+- `published_items.origin_ref` (TEXT, nullable) → identifica el ítem de producción que originó una **propuesta**, con formato `ep:<uuid>/<source>/<ref>` (ej. `ep:.../mediano/m3`, `ep:.../minado/7`, `ep:.../reel/2-0`). Sirve para **idempotencia** del puente producción → propuesta: si la PM re-envía el mismo ítem desde una tab de producción, NO se crea una segunda propuesta. Índice dedicado.
+
 > Los schemas exactos (defaults, constraints) están en Supabase — esta lista refleja las columnas que efectivamente se leen/escriben desde el código. Si aparecen columnas nuevas en la tabla que no están acá, revisar contra `app/api/episodes/route.js`, `app/api/newsletters/route.js` y los generadores en `app/api/generate/` y `app/api/newsletters/generate/`.
 
 ---
 
-## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.8)
+## 4. LO QUE EXISTE HOY EN PRODUCCIÓN
 
-La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios) + Integración Descript (cortes automáticos) + **capa de Estrategia** (Radar, Público, providers de métricas) + **Universo del episodio** (piezas en 3 estados navegables, PiezaPanel, AnguloView cross-episodios, Aprendizajes del mes).
+**En `main` (Vercel Production): v0.8** — flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios) + Integración Descript (cortes automáticos) + **capa de Estrategia** (Radar, Público, providers de métricas) + **Universo del episodio** (piezas en 3 estados navegables, PiezaPanel, AnguloView cross-episodios, Aprendizajes del mes).
+
+**En rama `sprint-publicacion` (pendiente de merge): v0.9** — cierra el ciclo con la nueva vista **Publicaciones** (reconciliación semanal), el puente producción → propuestas, contenido original con libreto → auto-sugerencia de ángulo con Claude, agrupación de hermanas por `content_group_id`, episodio-al-aire y selector de rango en el Radar. Ver bloque "Sprint Publicación" abajo y §16 (envs no cambian).
 
 ### Lo que tiene y funciona (Sprint 1 COMPLETO)
 - Sidebar oscuro con lista de episodios + botón "Nuevo episodio"
@@ -314,16 +324,35 @@ Evoluciona la capa de estrategia hacia el modelo de "producto y su universo de c
 - **Provider de YouTube real** (`lib/metrics/youtube.js`): YouTube Data API v3 con API key (sin OAuth). `extractVideoId` soporta `watch?v=`, `youtu.be/`, `shorts/`, `embed/`. Devuelve `views`, `likes`, `comments` + `engagement_rate = (likes + comments) / views × 100`. Se activa con `METRICS_PROVIDER != 'mock'` + `YOUTUBE_API_KEY`.
 - **Provider de Metricool real** (`lib/metrics/metricool.js`): cubre Instagram / LinkedIn / TikTok. Auth: header `X-Mc-Auth: <token>` + query `userId` + `blogId`. Cache in-memory por (endpoint, ventana) con TTL 5 min — un sync con 40 reels pega a Metricool 1 vez, no 40. Ventana default 365 días. Ruteo por (plataforma + URL + content_type) a **4 endpoints reales** (§18). Match por URL normalizada + shortcode + IDs numéricos largos. **Sync real medido:** ~137 items → ~701 snapshots, 91% match rate.
 - **Fix:** plataformas sin provider (substack para newsletters) devuelven `[]` (sin métrica). Ya NO caen al mock — el mock solo se usa con `METRICS_PROVIDER=mock` explícito.
-- **Registrar publicación** (`RegistrarPublicacionModal.jsx`) evolucionado con selector de `status` (Publicada / Propuesta / Descartada) y campo condicional de `discard_reason`.
+- **Registrar publicación** (`RegistrarPublicacionModal.jsx`) evolucionado con selector de `status` (Publicada / Propuesta / Descartada) y campo condicional de `discard_reason`. **(Retirado en v0.9: ver Sprint Publicación abajo.)**
+
+### Sprint Publicación ✅ COMPLETO (v0.9, 17 Julio 2026) — en rama `sprint-publicacion`
+Cierra el ciclo de "producto y su universo". El **modelo mental cambia**: publicar deja de ser un formulario que recrea la pieza desde cero (el modal viejo, que además tiraba client-side exception) y pasa a ser la **ratificación de una pieza que ya existe** (nació en producción como propuesta). El equipo NO re-ingresa ángulo/madre/tipo — todo viaja heredado. La trazabilidad propuesta → publicada / descartada se vuelve automática. Spec: `spec-sprint-publicacion.md`.
+
+7 módulos:
+
+- **A. Puente producción → propuestas** (`SendToPublicacionesBtn` en `components/ui.jsx`). Botones "↗ enviar" y "🚫 descartar" en cada ítem desarrollado/seleccionado de **MinadoTab** (por `MicroCard`), **MedianosTab** (por mediano desarrollado) y **ReelsTab** (por guión final cerrado — los que no están cerrados no ofrecen el botón, evita crear propuestas de guiones a medio armar). `POST /api/publicaciones/enviar` inserta filas `status='propuesta'` (o `descartada`) heredando `origin_type='episode'`, `origin_id`, `origin_label`, `angle_type`, `creation_source='sistema'`. **Idempotente por `origin_ref`** (`ep:<uuid>/<source>/<ref>`): hacer clic dos veces desde el mismo ítem NO crea duplicados; devuelve `saltadas[]` con el `existing_id`. Los 20 ángulos crudos NO se envían — solo lo seleccionado/desarrollado.
+- **B. Vista "Publicaciones"** (`components/estrategia/PublicacionesView.jsx` + `GET /api/publicaciones`). Nuevo item en el sidebar (grupo Estrategia): **Radar · Publicaciones · Público**. Muestra, agrupado por episodio: (1) banner naranja "¿este episodio ya salió?" si falta YouTube/Spotify (Módulo F); (2) propuestas abiertas con dos acciones por fila — **publicada ↗** (abre mini-form inline con 1..N pares plataforma+link; "otra plataforma" agrega hermanas del mismo video) o **descartar** (razón opcional → learning draft). Estilo checklist rápida, no formulario. `POST /api/publicaciones/publicar`: **dedupe por URL normalizada** (sin query/fragment/trailing slash) — si ya existe una pieza con esa URL, se salta y se devuelve como `saltadas`; la propuesta original se **actualiza** a la primera URL (no se crea fila nueva), las siguientes URLs entran como **hermanas** (INSERT) con el mismo `content_group_id`. Genera `utm_campaign` por pieza y dispara `metrics/sync` fire-and-forget. `POST /api/publicaciones/descartar`: `status='descartada'` + `discard_reason` opcional → crea `learning` draft (`target_protocol_name='general'`).
+- **C. Contenido original** — para lo que la copy hace por fuera del sistema (frecuente en reels). Botón "+ contenido original" en el header de Publicaciones y como "+ agregar pieza a este episodio" en el Universo. `ContenidoOriginalModal.jsx` (portal + Escape) pide madre / tipo / título / **libreto opcional** / ángulo / 1..N pares plataforma+link. Si el libreto tiene ≥20 chars, un click en **"sugerir ángulo"** dispara `POST /api/publicaciones/sugerir-angulo` que llama a Claude con el system prompt del ADN y devuelve `{ angle_type, confianza, razon }` — el modal auto-selecciona la sugerencia pero la PM puede cambiarla. `POST /api/publicaciones/original` crea las piezas con `creation_source='idea_propia'`, guarda el libreto en la columna nueva como **semilla** (no se procesa más allá de sugerir el ángulo — spec §8), `content_group_id` común, `status='publicada'`, `published_at=now()`. Dedupe por URL.
+- **D. Descartar desde producción** — el mismo `SendToPublicacionesBtn` en modo `discard=true` funciona en las 3 tabs de producción, con confirmación de razón inline. Las descartadas quedan **ocultas por defecto** en el Universo (viven solo en el filtro "Descartadas") y NO entran a la vista Publicaciones. Mantiene el universo limpio.
+- **E. Agrupación de hermanas** (`content_group_id`) — `GET /api/episodes/[id]/linaje` ahora devuelve `filas[]` (mezcla de `kind:'grupo'` con `miembros[]` desglosados por plataforma + reach combinado + engagement promedio, y `kind:'individual'`). `LineageTab.jsx` renderiza `GrupoRow` (ícono `×N`, chip "N redes", alcance combinado, expandible por red con sus métricas) para grupos publicados; `PiezaRow` sigue para propuestas y descartes. `/api/radar` también agrupa por `content_group_id` en **top piezas** y **mejores_all_time** — un mismo video en 3 redes ocupa 1 slot, no 3. Arregla el "¿hay unas repetidas?" que confundió a JP. El campo viejo `piezas[]` se conserva por compat.
+- **F. Episodio al aire** dentro de Publicaciones — banner naranja arriba del bloque del episodio si no tiene aún registrada su pieza `content_type='episodio'` en YouTube o Spotify. Se pegan los links y `POST /api/publicaciones/publicar` (con `content_type_override='episodio'` + `episode_id`) crea la fila que llena la **card madre** del Universo con sus métricas propias (Metricool/YouTube las jalan en el siguiente sync). Arregla el gap conocido de v0.8 ("solo Ep. 001 tiene métricas propias").
+- **G. Selector de rango temporal en el Radar** — segmentado **Esta semana · Este mes · Todo el tiempo** (default: **Este mes**; los datos son reconstrucción histórica, 7 días fijos no aplica). `GET /api/radar?range=week|month|all&from=&to=`. Los subs se comparan contra la ventana previa; en `all` no hay comparación. Nueva sección **"Mejores de todos los tiempos"** debajo del bloque patrones: top 10 grupos por reach sobre TODO el histórico (independiente del rango). Cada fila abre `PiezaPanel`.
+
+**Migración** (`migrations/sprint-publicacion.sql`, idempotente): `ADD COLUMN IF NOT EXISTS content_group_id UUID / libreto TEXT / origin_ref TEXT` en `published_items` + `CREATE INDEX IF NOT EXISTS` en `content_group_id` y `origin_ref`. RLS ya estaba off desde v0.7. **No hay envs nuevas** — todo usa creds que ya están.
+
+**Modal viejo retirado**: `components/estrategia/RegistrarPublicacionModal.jsx` **eliminado** del repo. Su función la cubren `PublicacionesView` (para lo que salió) + `ContenidoOriginalModal` (para lo original).
 
 ### Lo que NO funciona todavía
 - No hay chat embebido con contexto → Sprint 4.
-- El motor real de insights (los "Aprendizajes del mes" siguen siendo demo/hardcodeados) → futuro.
-- El modo Narrar completo (hoy solo el preview) → futuro.
+- El **motor real de insights** (los "Aprendizajes del mes" siguen siendo demo/hardcodeados) → futuro. Cuando se construya, reemplaza `lib/aprendizajes-demo.js` con un cálculo real sobre `metric_snapshots + published_items + subscribers`.
+- **YouTube Analytics API / OAuth** (CTR, % medio visto, watch time) → sprint futuro. Hoy `lib/metrics/youtube.js` usa solo la Data API v3 con API key (views/likes/comments/engagement_rate). Las palancas de retención que llenan la card madre en profundidad requieren OAuth como dueño del canal (envs `YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN`).
+- El modo Narrar completo (hoy solo el preview "Aprendizajes del mes") → futuro.
 - **La capa de identidad / target sigue LATENTE**: `is_target`, `cargo`, `empresa` existen en `subscribers` pero ninguna vista los nombra. Se enciende cuando la comunidad crezca.
+- **Procesar el libreto de contenido original** más allá de sugerir el ángulo → futuro. Se guarda en `published_items.libreto` como semilla (v0.9).
 - **No hay autenticación**: la app no tiene login; quien tenga el URL entra. Con RLS off + anon key expuesta, el acceso es abierto. Aceptable para uso interno; resolver antes de abrir a clientes.
-- **Providers reales de Metricool/YouTube listos pero no todos activos:** Metricool y YouTube funcionan; Spotify sigue como stub (no hay API oficial de analíticas de creador — llenado manual). Substack no tiene provider; sus piezas quedan sin métrica.
-- **Parrilla DISUELTA** — el código sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`) pero fuera del flujo de v0.8. Ver §10.
+- **Providers de métricas:** Metricool y YouTube (Data API) funcionan; Spotify sigue como stub (no hay API oficial de analíticas de creador — llenado manual o desde el sistema de Rubén). Substack no tiene provider; sus piezas quedan sin métrica.
+- **Parrilla DISUELTA** — el código sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`) pero fuera del flujo desde v0.8. Ver §10.
 
 ---
 
@@ -859,26 +888,42 @@ Ver §4 → "Sprint 3A" para la historia de qué construyó la Parrilla en su d�
 - ✅ Datos reales cargados: 4 episodios reales, 5 newsletters, 137 piezas importadas vía CSV, métricas YouTube (34) + Metricool (~99 IG/TT/LI)
 - ✅ Desplegado a producción (Vercel auto-deploy desde `main` tras merge de `sprint-universo`)
 
+### Sprint Publicación ✅ COMPLETO (v0.9, 17 Julio 2026) — en rama `sprint-publicacion` (pendiente de merge)
+- ✅ Migración `migrations/sprint-publicacion.sql`: `ADD COLUMN` para `content_group_id`, `libreto`, `origin_ref` en `published_items` + índices; idempotente
+- ✅ Puente producción → propuestas (`SendToPublicacionesBtn`) integrado en Minado, Medianos y Reels (solo guiones cerrados) → `POST /api/publicaciones/enviar` con idempotencia por `origin_ref`
+- ✅ Vista **Publicaciones** (`PublicacionesView.jsx` + `GET /api/publicaciones`) — nuevo item en el sidebar (grupo Estrategia); acciones rápidas por fila (publicada ↗ / descartar); mini-form inline con 1..N pares plataforma+link para hermanas
+- ✅ `POST /api/publicaciones/publicar`: UPDATE la propuesta + INSERT hermanas con `content_group_id` común; dedupe por URL normalizada; genera UTM; dispara `metrics/sync`
+- ✅ `POST /api/publicaciones/descartar`: `status='descartada'` + `discard_reason` opcional → crea `learning` draft
+- ✅ **Contenido original** (`ContenidoOriginalModal.jsx` + `POST /api/publicaciones/original`) con `creation_source='idea_propia'` y libreto opcional; **sugerir ángulo con Claude** vía `POST /api/publicaciones/sugerir-angulo` (system prompt del ADN)
+- ✅ Descartar desde producción (mismo botón en modo `discard`) — descartadas ocultas por defecto
+- ✅ Agrupación de hermanas: `content_group_id` visible en `LineageTab` (`GrupoRow` con `×N`, chip "N redes", expandible) y en `/api/radar` (top piezas y "mejores_all_time" agrupan)
+- ✅ Episodio-al-aire: banner naranja en Publicaciones → llena la card madre del Universo con métricas propias
+- ✅ Selector de rango temporal en Radar (`Esta semana / Este mes / Todo el tiempo`, default mes) + sección **"Mejores de todos los tiempos"**
+- ✅ Modal viejo `RegistrarPublicacionModal.jsx` **retirado** del repo (tiraba client-side exception)
+- ⏳ Pendiente: correr `migrations/sprint-publicacion.sql` en Supabase + merge de `sprint-publicacion` a `main` + deploy
+
 ### Sprint 4 — Chat embebido + pulido (PENDIENTE)
 - Panel lateral con contexto automático (episodio / idea / protocolo / pieza del Universo)
 - Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio")
 - Pulido general
 
-### Futuro (actualizado tras Sprint Universo)
-- **Motor real de insights** (los "Aprendizajes del mes" hoy son demo/inventados) — reemplaza `lib/aprendizajes-demo.js` con un cálculo real sobre `metric_snapshots + published_items + subscribers`
-- **Modo Narrar completo** (hoy solo el preview) — convertir el Universo en historia caminada para clientes/equipo, superficie de venta/retención de la agencia
-- **Encender la capa de identidad / target** (columnas `is_target/cargo/empresa` ya existen latentes) — cuando la comunidad crezca; agrega vistas de "quién entró por qué pieza"
-- **Enriquecer la card madre** con métricas propias del episodio (CTR, % visto, watch time de YouTube — ya pulleables; profundidad de Spotify vía Rubén / manual). Ver §20.
+### Futuro (actualizado tras Sprint Publicación)
+- **YouTube Analytics API / OAuth** (CTR, % medio visto, watch time) → hoy `lib/metrics/youtube.js` sólo usa la Data API v3 con API key (views/likes/comments/engagement). Sumar Analytics requiere OAuth como dueño del canal (envs `YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN`). Es el desbloqueo grande para enriquecer la card madre y el cruce con Rubén (§20).
+- **Motor real de insights** — reemplaza `lib/aprendizajes-demo.js` con un cálculo real sobre `metric_snapshots + published_items + subscribers`. El framework de UI (carrusel + eyebrow + claim + evidencia + acción) ya está listo desde v0.8.
+- **Modo Narrar completo** (hoy solo el preview "Aprendizajes del mes") — convertir el Universo en historia caminada para clientes/equipo, superficie de venta/retención de la agencia.
+- **Encender la capa de identidad / target** (columnas `is_target/cargo/empresa` ya existen latentes) — cuando la comunidad crezca; agrega vistas de "quién entró por qué pieza".
+- **Procesar el libreto de contenido original** más allá de sugerir el ángulo — hoy se guarda en `published_items.libreto` como semilla (v0.9). Extensión natural: aprender de "lo que la copy escribió vs lo que el sistema hubiera propuesto".
+- **Enriquecer la card madre** con métricas de profundidad (Spotify vía Rubén / manual; YouTube Analytics cuando llegue OAuth). Ver §20.
 - **El cruce diferenciador**: retención del episodio × desempeño de la pieza, unidos por el ángulo (algo que solo CMO puede computar). Ver §20.
-- **Plataforma multi-producto** (auth, roles, onboarding, config por cliente, billing) — la costura `product_id` ya está lista
-- **Autenticación / login** (deuda actual: la app es abierta al que tenga el URL)
-- **LinkedIn matching completo**: registrar piezas con URLs `feed/update/urn:li:share:{ID}` para cerrar el gap (§18)
-- **Chrome explícito de "modo producción"** (por ahora basta el default por ciclo de vida)
-- **Sync de métricas programado** (cron diario) — hoy es manual (curl al endpoint)
-- MCP para conectar Claude.ai con el sistema
-- Bandeja de entrada / Google News interno
-- Espacio de feedback agregado (comentarios, DMs, socia)
-- Landing page y pricing para venta
+- **Plataforma multi-producto** (auth, roles, onboarding, config por cliente, billing) — la costura `product_id` ya está lista.
+- **Autenticación / login** (deuda actual: la app es abierta al que tenga el URL).
+- **LinkedIn matching completo**: registrar piezas con URLs `feed/update/urn:li:share:{ID}` para cerrar el gap (§18).
+- **Chrome explícito de "modo producción"** (por ahora basta el default por ciclo de vida).
+- **Sync de métricas programado** (cron diario) — hoy es manual (curl al endpoint).
+- MCP para conectar Claude.ai con el sistema.
+- Bandeja de entrada / Google News interno.
+- Espacio de feedback agregado (comentarios, DMs, socia).
+- Landing page y pricing para venta.
 
 ---
 
@@ -1045,7 +1090,7 @@ Sin API oficial de analíticas de creador (confirmado). La profundidad de consum
 - **Métricas reales vivas:** YouTube (34 piezas) + Metricool IG/TikTok/LinkedIn (~99). Ver §18 → resultado medido.
 
 ### Gap conocido: card "madre" del Universo sin métricas
-La card oscura de "madre" en el Universo solo muestra métricas propias del episodio si existe una `published_item` con `content_type='episodio'` y `platform='youtube'` para ese episodio. Hoy solo el Ep. 001 la tiene. Para que las demás madres muestren sus vistas de YouTube, agregar una fila por episodio con esa combinación + URL del video completo (ver error 27). El sync levanta las métricas automáticamente.
+La card oscura de "madre" en el Universo solo muestra métricas propias del episodio si existe una `published_item` con `content_type='episodio'` y `platform='youtube'` para ese episodio. Al 17 Jul 2026 solo el Ep. 001 la tiene. **En v0.9 (Sprint Publicación) el gap se cierra desde la UI**: el banner naranja "¿ya salió?" en la vista Publicaciones (§4 Módulo F) crea esta fila con un pegar link → click; el sync levanta las métricas automáticamente. Alternativa manual (pre-v0.9): agregar una fila por episodio con `content_type='episodio' + platform='youtube' + published_url` desde el SQL editor o el importer (ver error 27).
 
 ### Workflow de reconstrucción (para futuros / otros productos)
 1. Plantilla Excel con columnas: `madre_tipo` (episode|newsletter) · `madre` (nombre EXACTO del episodio/newsletter) · `titulo_pieza` · `tipo_contenido` (reel|mediano|linkedin|carrusel|corto|episodio|newsletter) · `plataforma` · `url_publicada` · `post_id` · `tipo_angulo` · `fuente_creacion` · `fecha_publicacion` · `notas`
