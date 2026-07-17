@@ -9,7 +9,8 @@ import {
   LILA, LILA_L, LILA_B,
   CONTENT_TYPE_LABEL, PLATFORM_LABEL, ANGLE_TYPE_LABEL,
 } from "@/components/estrategia/theme";
-import RegistrarPublicacionModal from "@/components/estrategia/RegistrarPublicacionModal";
+// El modal viejo "Registrar publicación" quedó fuera del flujo (Sprint
+// Publicación §5). Su función la cubre PublicacionesView + ContenidoOriginalModal.
 import PiezaPanel from "@/components/estrategia/PiezaPanel";
 import AnguloView from "@/components/estrategia/AnguloView";
 import AprendizajesDelMes from "@/components/estrategia/AprendizajesDelMes";
@@ -20,15 +21,18 @@ export default function RadarView({ onVerLinaje }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
-  const [openModal, setOpenModal] = useState(false);
   const [openPiezaId, setOpenPiezaId] = useState(null);
   const [openAngulo, setOpenAngulo] = useState(null);
   const [openAprendizajes, setOpenAprendizajes] = useState(false);
+  // Sprint Publicación §3 G — selector de rango. Default 'month' (los datos
+  // son reconstrucción histórica; 7 días fijos no aplica).
+  const [range, setRange] = useState('month'); // 'week' | 'month' | 'all'
 
-  const load = async () => {
+  const load = async (rangeVal) => {
     setLoading(true); setErr(null);
     try {
-      const r = await fetch('/api/radar', { cache: 'no-store' });
+      const q = new URLSearchParams({ range: rangeVal || range }).toString();
+      const r = await fetch(`/api/radar?${q}`, { cache: 'no-store' });
       const j = await r.json();
       if (j?.error) throw new Error(j.error);
       setData(j);
@@ -38,12 +42,14 @@ export default function RadarView({ onVerLinaje }) {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [range]);
 
   const pulso = data?.pulso;
   const patrones = data?.patrones;
-  const delta7 = (pulso?.subs_nuevos_7d || 0) - (pulso?.subs_prev_7d || 0);
-  const deltaPct = pulso?.subs_prev_7d ? Math.round((delta7 / pulso.subs_prev_7d) * 100) : (pulso?.subs_nuevos_7d ? 100 : 0);
+  const mejoresAllTime = data?.mejores_all_time || [];
+  const delta = (pulso?.subs_nuevos || 0) - (pulso?.subs_prev || 0);
+  const deltaPct = pulso?.subs_prev ? Math.round((delta / pulso.subs_prev) * 100) : (pulso?.subs_nuevos ? 100 : 0);
+  const rangoLabel = data?.rango?.label || (range === 'all' ? 'todo el tiempo' : range === 'week' ? 'esta semana' : 'este mes');
 
   return (
     <div className="p-6 md:p-8 mx-auto max-w-6xl">
@@ -51,22 +57,16 @@ export default function RadarView({ onVerLinaje }) {
       <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold text-stone-800">Radar</h1>
-          <p className="text-sm text-stone-500 mt-0.5">últimos 7 días</p>
+          <p className="text-sm text-stone-500 mt-0.5">{rangoLabel}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <RangeSelector value={range} onChange={setRange} />
           <button
             onClick={() => setOpenAprendizajes(true)}
             className="px-4 py-2.5 rounded-xl text-sm font-medium border hover:bg-stone-50"
             style={{ borderColor: BORDER, color: MU }}
           >
             📖 Aprendizajes del mes
-          </button>
-          <button
-            onClick={() => setOpenModal(true)}
-            className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
-            style={{ background: O }}
-          >
-            <Sparkles size={14} /> Registrar publicación
           </button>
         </div>
       </div>
@@ -86,27 +86,27 @@ export default function RadarView({ onVerLinaje }) {
           <div className="grid gap-3 mb-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
             <MetricCard
               label="Suscriptores nuevos"
-              value={pulso.subs_nuevos_7d}
-              hint={`vs ${pulso.subs_prev_7d || 0} semana previa`}
-              delta={delta7}
+              value={pulso.subs_nuevos}
+              hint={range === 'all' ? 'todo el histórico' : `vs ${pulso.subs_prev || 0} ventana previa`}
+              delta={range === 'all' ? null : delta}
               deltaPct={deltaPct}
               bg={CARD_ORANGE}
             />
             <MetricCard
               label="Alcance total"
-              value={fmt(pulso.alcance_total_7d)}
+              value={fmt(pulso.alcance_total)}
               hint="reach · impressions · views"
               bg={CARD_NEUTRAL}
             />
             <MetricCard
               label="Engagement promedio"
-              value={`${(pulso.engagement_promedio_7d ?? 0).toFixed(1)}%`}
-              hint="últimas piezas"
+              value={`${(pulso.engagement_promedio ?? 0).toFixed(1)}%`}
+              hint="por pieza"
               bg={CARD_SUCCESS}
             />
             <MetricCard
               label="Piezas publicadas"
-              value={pulso.piezas_publicadas_7d}
+              value={pulso.piezas_publicadas}
               hint={`de ${pulso.madres_activas} madre${pulso.madres_activas === 1 ? '' : 's'}`}
               bg={CARD_NEUTRAL}
             />
@@ -211,14 +211,50 @@ export default function RadarView({ onVerLinaje }) {
               <p className="text-sm text-stone-700"><strong>Insight:</strong> {insightFrom(patrones)}</p>
             </div>
           )}
+
+          {/* ─── Mejores de todos los tiempos (spec Módulo G) ─── */}
+          {mejoresAllTime.length > 0 && (
+            <>
+              <div className="h-px w-full my-8" style={{ background: BORDER }} />
+              <div className="mb-2">
+                <h2 className="text-lg font-semibold text-stone-800">Mejores de todos los tiempos</h2>
+                <p className="text-xs text-stone-500 mt-0.5">las piezas de mayor alcance del histórico completo</p>
+              </div>
+              <div className="rounded-2xl bg-white border p-5" style={{ borderColor: BORDER }}>
+                <div className="space-y-2">
+                  {mejoresAllTime.map((p, i) => (
+                    <button
+                      key={p.id || i}
+                      onClick={() => p.id && setOpenPiezaId(p.id)}
+                      className="w-full text-left flex items-center gap-3 p-3 rounded-xl border hover:border-orange-300 transition-colors"
+                      style={{ borderColor: BORDER }}
+                    >
+                      <span className="text-xs font-bold text-stone-400 shrink-0" style={{ width: 22 }}>{i + 1}</span>
+                      <PlatformIcon platform={p.platform} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-stone-800 truncate">{p.title}</p>
+                        <div className="flex items-center gap-2 text-[11px] text-stone-500 flex-wrap">
+                          <span>{CONTENT_TYPE_LABEL[p.content_type] || p.content_type}</span>
+                          {p.origin_label && (<><span>·</span><span className="truncate max-w-[220px]">{p.origin_label}</span></>)}
+                          <span>·</span>
+                          <span>{fmt(p.reach)} de alcance</span>
+                          {typeof p.engagement_rate === 'number' && (<><span>·</span><span>{p.engagement_rate.toFixed(1)}% eng.</span></>)}
+                          {p.platforms && p.platforms.length > 1 && (<><span>·</span><span className="text-stone-400">{p.platforms.join(' + ')}</span></>)}
+                        </div>
+                      </div>
+                      {p.subs > 0 && (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: GL, color: GR }}>
+                          +{p.subs} sub{p.subs === 1 ? '' : 's'}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
-
-      <RegistrarPublicacionModal
-        open={openModal}
-        onClose={() => setOpenModal(false)}
-        onCreated={() => { setOpenModal(false); load(); }}
-      />
 
       {openPiezaId && (
         <PiezaPanel
@@ -249,6 +285,31 @@ export default function RadarView({ onVerLinaje }) {
 }
 
 // ═══ Sub-componentes ═══
+
+function RangeSelector({ value, onChange }) {
+  const opts = [
+    { key: 'week', label: 'Esta semana' },
+    { key: 'month', label: 'Este mes' },
+    { key: 'all', label: 'Todo el tiempo' },
+  ];
+  return (
+    <div className="flex items-center gap-0.5 rounded-xl p-0.5 border" style={{ borderColor: BORDER, background: 'white' }}>
+      {opts.map(o => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+          style={{
+            background: value === o.key ? OL : 'transparent',
+            color: value === o.key ? O : MU,
+          }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function MetricCard({ label, value, hint, delta, deltaPct, bg }) {
   const up = typeof delta === 'number' && delta > 0;

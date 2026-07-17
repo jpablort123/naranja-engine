@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Copy, Check, Loader2, Sparkles, CheckCircle2, X, Pencil, Save, Lightbulb, Calendar } from "lucide-react";
+import { Copy, Check, Loader2, Sparkles, CheckCircle2, X, Pencil, Save, Lightbulb, Calendar, Send, Ban } from "lucide-react";
 
 // ═══ THEME CONSTANTS ═══
 export const O = "#EA580C";
@@ -81,6 +81,103 @@ export function BankBtn({ payload }) {
   };
   if (added) return <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: GL, color: GR }}><Check size={11} /> Agregado</span>;
   return <button onClick={click} title="Llevar al banco de ideas" className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg text-stone-500 border border-stone-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 transition-colors shrink-0"><Lightbulb size={11} /> Al banco</button>;
+}
+
+// ═══ SEND-TO-PUBLICACIONES BUTTON ═══
+// Spec Sprint Publicación §3 Módulo A — puente producción → published_items.
+// El ítem se envía como propuesta (o descartada si desc=true) al endpoint
+// /api/publicaciones/enviar. Idempotente por (episode_id, source, ref).
+//
+// Props (compactos):
+//   episodeId, source, refId, title, angleType?, discard? (bool)
+export function SendToPublicacionesBtn({ episodeId, source, refId, title, angleType, discard = false, compact = false, onSent }) {
+  const [state, setState] = useState('idle'); // idle | loading | ok | error
+  const [reason, setReason] = useState('');
+  const [askReason, setAskReason] = useState(false);
+  const send = async (statusOverride) => {
+    if (state === 'loading' || state === 'ok') return;
+    setState('loading');
+    try {
+      const r = await api('/api/publicaciones/enviar', {
+        method: 'POST',
+        body: JSON.stringify({
+          episode_id: episodeId,
+          items: [{
+            source,
+            ref: refId,
+            title,
+            angle_type: angleType || null,
+            status: statusOverride || (discard ? 'descartada' : 'propuesta'),
+            discard_reason: statusOverride === 'descartada' || discard ? (reason.trim() || null) : null,
+          }],
+        }),
+      });
+      if (r?.error) throw new Error(r.error);
+      setState('ok');
+      onSent?.(r);
+      setTimeout(() => setState('idle'), 2000);
+    } catch (e) {
+      console.error('SendToPublicaciones:', e);
+      setState('error');
+      setTimeout(() => setState('idle'), 2500);
+    }
+  };
+
+  if (discard) {
+    if (state === 'ok') return (
+      <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: '#F5F5F4', color: MU }}>
+        <Check size={11} /> Descartada
+      </span>
+    );
+    if (askReason) {
+      return (
+        <div className="flex items-center gap-1.5">
+          <input
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="razón (opcional)"
+            className="text-[11px] px-2 py-1 border rounded-lg focus:outline-none focus:border-orange-300"
+            style={{ borderColor: '#D6D3D1', width: 160 }}
+          />
+          <button
+            onClick={() => { setAskReason(false); send('descartada'); }}
+            className="text-[11px] font-medium px-2 py-1 rounded-lg text-stone-600 border border-stone-200 hover:bg-stone-100 flex items-center gap-1"
+          >
+            <Ban size={11} /> confirmar
+          </button>
+        </div>
+      );
+    }
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); setAskReason(true); }}
+        title="Descartar (queda oculto por defecto)"
+        className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg text-stone-500 border border-stone-200 hover:bg-stone-100 shrink-0 ${state === 'loading' ? 'opacity-60' : ''}`}
+      >
+        {state === 'loading' ? <Loader2 size={11} className="animate-spin" /> : <Ban size={11} />}
+        Descartar
+      </button>
+    );
+  }
+
+  // publicar (default)
+  if (state === 'ok') return (
+    <span className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: GL, color: GR }}>
+      <Check size={11} /> Enviado
+    </span>
+  );
+  const label = compact ? '' : 'A publicaciones';
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); send(); }}
+      title="Enviar como propuesta a Publicaciones"
+      disabled={state === 'loading'}
+      className="flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg text-stone-500 border border-stone-200 hover:bg-orange-50 hover:text-orange-600 hover:border-orange-200 shrink-0 transition-colors disabled:opacity-60"
+    >
+      {state === 'loading' ? <Loader2 size={11} className="animate-spin" /> : <Send size={11} />}
+      {label}
+    </button>
+  );
 }
 
 export function Skel({ n = 3 }) {

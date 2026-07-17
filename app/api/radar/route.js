@@ -6,22 +6,28 @@ const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_P
 export const dynamic = 'force-dynamic';
 
 // ═══ GET /api/radar ═══
-// Payload que consume RadarView (spec §5.4). Une:
-//  - published_items (todos, con published_at)
-//  - latest_metrics (última métrica por pieza por tipo)
-//  - subscribers (para subs 7d)
-//  - episodes (para el "último episodio")
-// Todo el cálculo se hace en memoria — el dataset del sprint es chico
-// (decenas → cientos de piezas). Si crece mucho, mover a SQL agregados.
-export async function GET() {
+// Payload del RadarView (spec v0.9 §3 Módulo G — selector de rango).
+//
+// Query params:
+//   range = 'week' | 'month' | 'all'  (default 'month')
+//   from  = ISO opcional (override manual)
+//   to    = ISO opcional (override manual)
+//
+// Responde:
+//   { pulso, patrones, mejores_all_time }
+// donde pulso ahora respeta el rango elegido y `mejores_all_time` es un top
+// piezas por reach sobre TODO el histórico (independiente del rango).
+export async function GET(req) {
   try {
-    const now = new Date();
-    const d7 = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
-    const d14 = new Date(now.getTime() - 14 * 24 * 3600 * 1000);
+    const { searchParams } = new URL(req.url);
+    const range = (searchParams.get('range') || 'month').toLowerCase();
+    const fromParam = searchParams.get('from');
+    const toParam = searchParams.get('to');
+
+    const { from, to, previous_from, previous_to, label } = resolveRange({ range, fromParam, toParam });
 
     const [{ data: items = [] }, { data: metrics = [] }, { data: subs = [] }, { data: episodes = [] }] = await Promise.all([
-      // published_items filtrado por producto Y por status='publicada' — el Radar
-      // habla de RESULTADOS, no de propuestas ni descartes (spec universo §4).
+      // spec universo §4: sólo status='publicada'.
       withProduct(db.from('published_items').select('*')).eq('status', 'publicada'),
       db.from('latest_metrics').select('*'),
       withProduct(db.from('subscribers').select('*')),
@@ -34,8 +40,6 @@ export async function GET() {
       metByItem[m.published_item_id] = metByItem[m.published_item_id] || {};
       metByItem[m.published_item_id][m.metric] = Number(m.value);
     }
-
-    // Alcance de una pieza: la primera métrica de tipo alcance que exista.
     const reachOf = (item) => {
       const met = metByItem[item.id] || {};
       return Number(met.reach ?? met.views ?? met.impressions ?? 0) || 0;
@@ -46,84 +50,139 @@ export async function GET() {
       return typeof v === 'number' ? v : null;
     };
 
-    // ── PULSO (7 días) ──────────────────────────────────────────────────────
-    const items7 = items.filter(i => i.published_at && new Date(i.published_at) >= d7);
-    const alcance_total_7d = items7.reduce((acc, it) => acc + reachOf(it), 0);
-    const piezas_publicadas_7d = items7.length;
-    const madres_activas = new Set(items7.filter(i => i.origin_id).map(i => i.origin_id)).size;
-    const engagements7 = items7.map(engOf).filter(v => typeof v === 'number');
-    const engagement_promedio_7d = engagements7.length > 0
-      ? Math.round((engagements7.reduce((a, b) => a + b, 0) / engagements7.length) * 10) / 10
+    // Agrupador por content_group_id — spec §3 Módulo E: hermanas del mismo
+    // video/concepto se cuentan como UNA pieza en el ranking (con reach
+    // combinado). Piezas sin content_group_id son "grupos de 1".
+    const groups = groupByContentGroup(items);
+    const groupReach = (g) => g.items.reduce((a, b) => a + reachOf(b), 0);
+    const groupEng = (g) => {
+      const vs = g.items.map(engOf).filter(v => typeof v === 'number');
+      return vs.length ? vs.reduce((a, b) => a + b, 0) / vs.length : null;
+    };
+    const groupPlatforms = (g) => [...new Set(g.items.map(x => x.platform))];
+
+    // Predicado de "está dentro del rango" (usamos `published_at`; si no hay,
+    // caemos a `created_at`).
+    const inRange = (it) => {
+      const ts = it.published_at || it.created_at;
+      if (!ts) return false;
+      const t = new Date(ts).getTime();
+      if (from && t < from.getTime()) return false;
+      if (to && t > to.getTime()) return false;
+      return true;
+    };
+    const itemsInRange = items.filter(inRange);
+    const groupsInRange = groups.filter(g => g.items.some(inRange));
+
+    // Alcance / engagement / piezas dentro del rango — cuenta 1 por grupo, no por hermana.
+    const alcance_total = groupsInRange.reduce((acc, g) => acc + groupReach(g), 0);
+    const piezas_publicadas = groupsInRange.length;
+    const madres_activas = new Set(itemsInRange.filter(i => i.origin_id).map(i => i.origin_id)).size;
+    const engagements = groupsInRange.map(groupEng).filter(v => typeof v === 'number');
+    const engagement_promedio = engagements.length > 0
+      ? Math.round((engagements.reduce((a, b) => a + b, 0) / engagements.length) * 10) / 10
       : 0;
 
-    // Suscriptores
-    const subs_nuevos_7d = subs.filter(s => s.subscribed_at && new Date(s.subscribed_at) >= d7).length;
-    const subs_prev_7d = subs.filter(s => s.subscribed_at && new Date(s.subscribed_at) >= d14 && new Date(s.subscribed_at) < d7).length;
+    // Suscriptores dentro del rango + ventana previa (comparación).
+    const subsInRange = subs.filter(s => {
+      if (!s.subscribed_at) return false;
+      const t = new Date(s.subscribed_at).getTime();
+      return (!from || t >= from.getTime()) && (!to || t <= to.getTime());
+    });
+    const subs_nuevos = subsInRange.length;
+    const subs_prev = previous_from && previous_to
+      ? subs.filter(s => {
+          if (!s.subscribed_at) return false;
+          const t = new Date(s.subscribed_at).getTime();
+          return t >= previous_from.getTime() && t < previous_to.getTime();
+        }).length
+      : 0;
+
+    // Subs atribuidos por pieza / por grupo.
     const subsByItem = subs.reduce((acc, s) => {
       if (s.attributed_item_id) acc[s.attributed_item_id] = (acc[s.attributed_item_id] || 0) + 1;
       return acc;
     }, {});
+    const groupSubs = (g) => g.items.reduce((a, b) => a + (subsByItem[b.id] || 0), 0);
 
-    // Top piezas (últimos 7d), ordenadas por reach
-    const top_piezas = items7
-      .map(it => ({
-        id: it.id,
-        title: it.title,
-        content_type: it.content_type,
-        platform: it.platform,
-        reach: reachOf(it),
-        engagement_rate: engOf(it),
-        subs: subsByItem[it.id] || 0,
-      }))
+    // Top piezas (grupos) del rango, ordenadas por reach agregado.
+    const top_piezas = groupsInRange
+      .map(g => {
+        const rep = pickRepresentative(g);
+        return {
+          id: rep.id,
+          content_group_id: g.groupKey.startsWith('single:') ? null : g.groupKey,
+          title: rep.title,
+          content_type: rep.content_type,
+          platform: rep.platform,
+          platforms: groupPlatforms(g),
+          reach: groupReach(g),
+          engagement_rate: groupEng(g),
+          subs: groupSubs(g),
+        };
+      })
       .sort((a, b) => (b.reach - a.reach) || (b.subs - a.subs))
       .slice(0, 5);
 
-    // Último episodio: buscar published_items con origin_type='episode'
-    // y agregar por origin_id, tomando el más reciente.
+    // Último episodio: agrupa piezas por origin_id y toma la más reciente.
+    // (No cambia por el rango — es "el episodio más reciente".)
     let ultimo_episodio = null;
     const epItems = items.filter(i => i.origin_type === 'episode' && i.origin_id);
     if (epItems.length > 0) {
-      // agrupar por origin_id
       const byEp = {};
       for (const it of epItems) {
         const k = it.origin_id;
-        byEp[k] = byEp[k] || { origin_id: k, label: it.origin_label || null, piezas: 0, alcance: 0, subs: 0, ts: 0 };
-        byEp[k].piezas += 1;
+        byEp[k] = byEp[k] || { origin_id: k, label: it.origin_label || null, piezas: 0, alcance: 0, subs: 0, ts: 0, groupSet: new Set() };
+        byEp[k].groupSet.add(it.content_group_id || `single:${it.id}`);
         byEp[k].alcance += reachOf(it);
         byEp[k].subs += subsByItem[it.id] || 0;
         const t = it.published_at ? new Date(it.published_at).getTime() : 0;
         if (t > byEp[k].ts) byEp[k].ts = t;
       }
+      Object.values(byEp).forEach(b => { b.piezas = b.groupSet.size; delete b.groupSet; });
       const rank = Object.values(byEp).sort((a, b) => b.ts - a.ts);
       const chosen = rank[0];
       if (chosen) {
-        ultimo_episodio = {
-          origin_id: chosen.origin_id,
-          label: chosen.label || episodes[0]?.name || null,
-          piezas: chosen.piezas,
-          alcance: chosen.alcance,
-          subs: chosen.subs,
-        };
+        ultimo_episodio = { ...chosen, label: chosen.label || episodes[0]?.name || null };
       }
     }
     if (!ultimo_episodio && episodes.length > 0) {
-      // Fallback: hay episodio en la tabla pero sin piezas publicadas todavía.
       ultimo_episodio = { origin_id: episodes[0].id, label: episodes[0].name, piezas: 0, alcance: 0, subs: 0 };
     }
 
-    // ── PATRONES (todo el histórico) ───────────────────────────────────────
-    // engagement por formato
+    // Patrones sobre TODO el histórico (no dependen del rango — spec §7 v0.7).
     const grpFormato = groupAvg(items, engOf, i => i.content_type);
-    // engagement por ángulo (solo cuando hay angle_type)
     const grpAngulo = groupAvg(items.filter(i => i.angle_type), engOf, i => i.angle_type);
 
+    // "Mejores de todos los tiempos" — spec §3 Módulo G.
+    // Top 10 grupos por reach, sin ventana temporal.
+    const mejores_all_time = groups
+      .map(g => {
+        const rep = pickRepresentative(g);
+        return {
+          id: rep.id,
+          content_group_id: g.groupKey.startsWith('single:') ? null : g.groupKey,
+          title: rep.title,
+          content_type: rep.content_type,
+          platform: rep.platform,
+          platforms: groupPlatforms(g),
+          origin_label: rep.origin_label,
+          reach: groupReach(g),
+          engagement_rate: groupEng(g),
+          subs: groupSubs(g),
+        };
+      })
+      .sort((a, b) => (b.reach - a.reach) || (b.subs - a.subs))
+      .slice(0, 10);
+
     return NextResponse.json({
+      rango: { range, from: from?.toISOString() || null, to: to?.toISOString() || null, label },
       pulso: {
-        subs_nuevos_7d,
-        subs_prev_7d,
-        engagement_promedio_7d,
-        alcance_total_7d,
-        piezas_publicadas_7d,
+        subs_nuevos,
+        subs_prev,
+        engagement_promedio,
+        alcance_total,
+        piezas_publicadas,
         madres_activas,
         top_piezas,
         ultimo_episodio,
@@ -132,6 +191,7 @@ export async function GET() {
         engagement_por_formato: grpFormato,
         engagement_por_angulo: grpAngulo,
       },
+      mejores_all_time,
     });
   } catch (e) {
     console.error('radar error:', e);
@@ -139,8 +199,47 @@ export async function GET() {
   }
 }
 
-// Agrupa por keyFn y saca promedio del valFn (ignora nulls). Devuelve array
-// ordenado descendente por promedio, formato listo para render de barras.
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function resolveRange({ range, fromParam, toParam }) {
+  const now = new Date();
+  if (fromParam || toParam) {
+    const from = fromParam ? new Date(fromParam) : null;
+    const to = toParam ? new Date(toParam) : now;
+    return { from, to, previous_from: null, previous_to: null, label: 'custom' };
+  }
+  if (range === 'week') {
+    const from = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    const previous_from = new Date(now.getTime() - 14 * 24 * 3600 * 1000);
+    return { from, to: now, previous_from, previous_to: from, label: 'esta semana (7d)' };
+  }
+  if (range === 'all') {
+    return { from: null, to: null, previous_from: null, previous_to: null, label: 'todo el tiempo' };
+  }
+  // month (default) — últimos 30 días para mantener consistencia con "este mes";
+  // el rollup natural del mes-calendario da mucho ruido al inicio del mes.
+  const from = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  const previous_from = new Date(now.getTime() - 60 * 24 * 3600 * 1000);
+  return { from, to: now, previous_from, previous_to: from, label: 'este mes (30d)' };
+}
+
+function groupByContentGroup(items) {
+  const byKey = new Map();
+  for (const it of items) {
+    const key = it.content_group_id ? it.content_group_id : `single:${it.id}`;
+    if (!byKey.has(key)) byKey.set(key, { groupKey: key, items: [] });
+    byKey.get(key).items.push(it);
+  }
+  return [...byKey.values()];
+}
+
+// Elige el representante de un grupo (para título/tipo/plataforma).
+// Preferimos la pieza más "grande" para que el título sea el más completo.
+function pickRepresentative(group) {
+  const order = { youtube: 0, tiktok: 1, instagram: 2, linkedin: 3, spotify: 4 };
+  return [...group.items].sort((a, b) => (order[a.platform] ?? 9) - (order[b.platform] ?? 9))[0];
+}
+
 function groupAvg(items, valFn, keyFn) {
   const buckets = {};
   for (const it of items) {

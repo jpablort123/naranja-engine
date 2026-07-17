@@ -7,7 +7,9 @@ import {
   LILA, LILA_L, LILA_B,
   CONTENT_TYPE_LABEL, PLATFORM_LABEL, ANGLE_TYPE_LABEL,
 } from "@/components/estrategia/theme";
-import RegistrarPublicacionModal from "@/components/estrategia/RegistrarPublicacionModal";
+// Sprint Publicación §5 — el modal viejo "Registrar publicación" se retiró.
+// Ahora "+ agregar pieza" abre el nuevo ContenidoOriginalModal (creation_source='idea_propia').
+import ContenidoOriginalModal from "@/components/estrategia/ContenidoOriginalModal";
 import PiezaPanel from "@/components/estrategia/PiezaPanel";
 import AnguloView from "@/components/estrategia/AnguloView";
 
@@ -26,7 +28,6 @@ export default function LineageTab({ episode, onGoToWorkshopTab }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [openModal, setOpenModal] = useState(false);
-  const [defaultStatusForModal, setDefaultStatusForModal] = useState('publicada');
   const [openPiezaId, setOpenPiezaId] = useState(null);
   const [openAngulo, setOpenAngulo] = useState(null);
   const [descartada, setDescartada] = useState(null); // pieza en estado descartada mostrada
@@ -50,27 +51,36 @@ export default function LineageTab({ episode, onGoToWorkshopTab }) {
 
   const piezas = tree?.piezas || [];
   const conteo = tree?.resultado?.conteo || {};
+  // Sprint Publicación §3 E — el endpoint devuelve `filas[]` que ya trae los
+  // grupos (kind:'grupo' con desglose por plataforma) y piezas individuales
+  // (kind:'individual') en la mezcla correcta. Si un backend viejo no las
+  // devuelve, caemos al shape v0.8 (`piezas`).
+  const filasRaw = Array.isArray(tree?.filas) && tree.filas.length > 0
+    ? tree.filas
+    : piezas.map(p => ({ kind: 'individual', ...p }));
 
-  const piezasVisibles = useMemo(() => {
-    if (filter === 'todo') return piezas;
-    return piezas.filter(p => (p.status || 'publicada') === filter);
-  }, [piezas, filter]);
+  const filasVisibles = useMemo(() => {
+    if (filter === 'todo') return filasRaw;
+    return filasRaw.filter(p => (p.status || 'publicada') === filter);
+  }, [filasRaw, filter]);
 
   const madreYT = tree?.madre?.metrics?.youtube;
   const madreSP = tree?.madre?.metrics?.spotify;
 
-  // Clic en una pieza — routing por estado (spec universo §4).
-  const onClickPieza = (p) => {
-    if (!p) return;
-    const s = p.status || 'publicada';
-    if (s === 'publicada') setOpenPiezaId(p.id);
-    else if (s === 'propuesta') {
-      // → producir: llevar a la tab de producción correspondiente al content_type.
-      const tab = tabForContentType(p.content_type);
+  // Clic en una fila — routing por estado (spec universo §4).
+  // Para grupos publicados, abrimos el panel de la pieza representativa
+  // (miembro con más reach), y el panel muestra las hermanas del grupo.
+  const onClickFila = (f) => {
+    if (!f) return;
+    const s = f.status || 'publicada';
+    if (s === 'publicada') {
+      const targetId = f.kind === 'grupo' ? f.miembros?.[0]?.id : f.id;
+      if (targetId) setOpenPiezaId(targetId);
+    } else if (s === 'propuesta') {
+      const tab = tabForContentType(f.content_type);
       if (tab && onGoToWorkshopTab) onGoToWorkshopTab(tab);
-      else setOpenPiezaId(p.id); // fallback: mostrar detalles.
-    }
-    else if (s === 'descartada') setDescartada(p);
+      else if (f.id) setOpenPiezaId(f.id);
+    } else if (s === 'descartada') setDescartada(f);
   };
 
   if (loading) return <div className="flex items-center gap-2 text-sm text-stone-400 py-6"><Loader2 size={14} className="animate-spin" /> Cargando universo…</div>;
@@ -92,7 +102,7 @@ export default function LineageTab({ episode, onGoToWorkshopTab }) {
         <div className="flex items-center gap-2">
           <SegmentedFilter value={filter} onChange={setFilter} conteo={conteo} />
           <button
-            onClick={() => { setDefaultStatusForModal('publicada'); setOpenModal(true); }}
+            onClick={() => setOpenModal(true)}
             className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-2"
             style={{ background: O }}
           >
@@ -129,19 +139,21 @@ export default function LineageTab({ episode, onGoToWorkshopTab }) {
 
           {/* Piezas con tronco */}
           <div className="relative pl-8">
-            {piezasVisibles.length > 0 && (
+            {filasVisibles.length > 0 && (
               <div className="absolute top-4 bottom-4 left-2 w-px" style={{ background: BORDER }} />
             )}
-            {piezasVisibles.length === 0 ? (
+            {filasVisibles.length === 0 ? (
               <div className="text-sm text-stone-400 italic py-4">
-                {piezas.length === 0
+                {filasRaw.length === 0
                   ? 'Aún no hay piezas registradas. Registra la primera con "+ agregar pieza a este episodio".'
                   : 'Sin piezas en este filtro.'}
               </div>
             ) : (
               <div className="space-y-3">
-                {piezasVisibles.map(p => (
-                  <PiezaRow key={p.id} p={p} onClick={() => onClickPieza(p)} onOpenAngulo={setOpenAngulo} />
+                {filasVisibles.map(f => (
+                  f.kind === 'grupo'
+                    ? <GrupoRow key={f.group_id} g={f} onClick={() => onClickFila(f)} onOpenAngulo={setOpenAngulo} onOpenPieza={(p) => setOpenPiezaId(p.id)} />
+                    : <PiezaRow key={f.id} p={f} onClick={() => onClickFila(f)} onOpenAngulo={setOpenAngulo} />
                 ))}
               </div>
             )}
@@ -186,14 +198,14 @@ export default function LineageTab({ episode, onGoToWorkshopTab }) {
         </div>
       </div>
 
-      {/* Modal registrar */}
-      <RegistrarPublicacionModal
-        open={openModal}
-        onClose={() => setOpenModal(false)}
-        onCreated={() => { setOpenModal(false); load(); }}
-        defaultStatus={defaultStatusForModal}
-        defaultMadre={{ origin_type: 'episode', origin_id: episode?.id, origin_label: episode?.name }}
-      />
+      {/* Modal registrar — Sprint Publicación §3 C, madre pre-cargada */}
+      {openModal && (
+        <ContenidoOriginalModal
+          onClose={() => setOpenModal(false)}
+          onCreated={() => { setOpenModal(false); load(); }}
+          defaultEpisodeId={episode?.id}
+        />
+      )}
 
       {/* PiezaPanel al clickear una publicada */}
       {openPiezaId && (
@@ -246,6 +258,86 @@ function SegmentedFilter({ value, onChange, conteo }) {
           {o.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+// Sprint Publicación §3 Módulo E — tarjeta de grupo (hermanas del mismo
+// content_group_id). Reach combinado + desglose por plataforma dentro.
+function GrupoRow({ g, onClick, onOpenAngulo, onOpenPieza }) {
+  const [expanded, setExpanded] = useState(false);
+  const { color, height } = strengthStyle(g.strength);
+  return (
+    <div className="relative">
+      <span className="absolute rounded" style={{
+        left: -24, top: '50%', transform: 'translateY(-50%)',
+        width: 24, height, background: color,
+      }} />
+      <div className="rounded-xl border" style={{ borderColor: GR, background: 'white' }}>
+        <button
+          onClick={onClick}
+          className="w-full text-left flex items-center gap-3 p-3 hover:bg-orange-50/40 transition-colors rounded-xl"
+        >
+          <div className="w-8 h-8 rounded-lg bg-stone-100 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-stone-500">×{g.miembros?.length || 0}</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-medium text-stone-800 truncate">{g.title}</p>
+              <span className="text-[9px] font-bold tracking-widest px-1.5 py-0.5 rounded" style={{ background: GL, color: GR }}>
+                {(g.platforms || []).length} redes
+              </span>
+            </div>
+            <div className="flex items-center gap-2 text-[11px] text-stone-500 mt-0.5 flex-wrap">
+              <span>{CONTENT_TYPE_LABEL[g.content_type] || g.content_type}</span>
+              <span>·</span>
+              <span>{fmt(g.reach)} alcance combinado</span>
+              {typeof g.engagement_rate === 'number' && (<><span>·</span><span>{g.engagement_rate.toFixed(1)}% eng.</span></>)}
+              {g.angle_type && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onOpenAngulo?.(g.angle_type); }}
+                  className="text-[10px] font-medium px-1.5 py-0.5 rounded hover:opacity-80"
+                  style={{ background: LILA_L, color: LILA }}
+                >
+                  {ANGLE_TYPE_LABEL[g.angle_type] || g.angle_type}
+                </button>
+              )}
+            </div>
+          </div>
+          {g.subs_atribuidos > 0 && (
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full flex items-center gap-1" style={{ background: GL, color: GR }}>
+              +{g.subs_atribuidos} sub{g.subs_atribuidos === 1 ? '' : 's'}
+            </span>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+            className="p-1 rounded hover:bg-stone-100 shrink-0"
+            title={expanded ? 'ocultar redes' : 'ver redes'}
+          >
+            <span className="text-[10px] text-stone-500">{expanded ? '▲' : '▼'}</span>
+          </button>
+        </button>
+        {expanded && (
+          <div className="border-t px-3 py-2 space-y-1" style={{ borderColor: BORDER }}>
+            {(g.miembros || []).map(m => (
+              <button
+                key={m.id}
+                onClick={(e) => { e.stopPropagation(); onOpenPieza?.(m); }}
+                className="w-full text-left flex items-center gap-2 py-1.5 px-2 rounded hover:bg-stone-50"
+              >
+                <PlatformIcon platform={m.platform} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] text-stone-700">{PLATFORM_LABEL[m.platform] || m.platform}</p>
+                </div>
+                <span className="text-[11px] text-stone-500">{fmt(m.reach)} alcance</span>
+                {typeof m.engagement_rate === 'number' && (
+                  <span className="text-[11px] text-stone-400">{m.engagement_rate.toFixed(1)}%</span>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

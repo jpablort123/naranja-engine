@@ -1,12 +1,12 @@
 "use client";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail, Trash2, Radar as RadarIcon, Users } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, Plus, X, Loader2, Sparkles, CheckCircle2, FileText, Upload, Mic, Rss, Brain, BookOpen, Lightbulb, Calendar, Home as HomeIcon, Mail, Trash2, Radar as RadarIcon, Users, Send } from "lucide-react";
 import dynamic from "next/dynamic";
 import {
   O, OL, OB, GR, GL, MU,
   api, apiRetry, CopyBtn, BankBtn, Skel, Badge,
   EditableText, ApplyBar, EditModal, AIEditBtn,
-  SendToParrillaBtn,
+  SendToParrillaBtn, SendToPublicacionesBtn,
 } from "@/components/ui";
 const LearningsReview = dynamic(() => import("@/components/LearningsReview"), { ssr: false });
 const ProtocolosViewer = dynamic(() => import("@/components/ProtocolosViewer"), { ssr: false });
@@ -17,6 +17,7 @@ const NewsletterUploadModal = dynamic(() => import("@/components/NewsletterUploa
 const NewsletterView = dynamic(() => import("@/components/NewsletterView"), { ssr: false });
 const RadarView = dynamic(() => import("@/components/estrategia/RadarView"), { ssr: false });
 const PublicoView = dynamic(() => import("@/components/estrategia/PublicoView"), { ssr: false });
+const PublicacionesView = dynamic(() => import("@/components/estrategia/PublicacionesView"), { ssr: false });
 const LineageTab = dynamic(() => import("@/components/estrategia/LineageTab"), { ssr: false });
 const DescriptImportModal = dynamic(() => import("@/components/DescriptImportModal"), { ssr: false });
 const DescriptJobsPanel = dynamic(() => import("@/components/DescriptJobsPanel"), { ssr: false });
@@ -664,8 +665,30 @@ function ReelsTab({ ep, onUpdate, onLearn }) {
             <p className="text-[10px] font-medium text-stone-400 uppercase tracking-widest mb-1">Versión final de copy</p>
             <textarea value={gf.libre || ''} onChange={e => patchPropuesta(ci, pIdx, { guion_final: { ...gf, libre: e.target.value } })}
               className="w-full text-sm border border-stone-200 rounded-lg p-3 focus:outline-none focus:border-orange-300 min-h-[120px] bg-white" />
-            <div className="flex items-center justify-end gap-2 mt-2">
+            <div className="flex items-center justify-end gap-2 mt-2 flex-wrap">
               <CopyBtn text={gf.libre || gf.generado} />
+              {/* Sprint Publicación §3 A+D — sólo cuando el guión está cerrado
+                  (la propuesta está lista para publicarse). Con eso evitamos
+                  crear propuestas de guiones a medio armar. */}
+              {gf.cerrado && (
+                <>
+                  <SendToPublicacionesBtn
+                    episodeId={ep.id}
+                    source="reel"
+                    refId={`${ci}-${pIdx}`}
+                    title={card.angulo_titulo || `Reel #${ci + 1}`}
+                    angleType={card.angulo_tipo || null}
+                  />
+                  <SendToPublicacionesBtn
+                    episodeId={ep.id}
+                    source="reel"
+                    refId={`${ci}-${pIdx}`}
+                    title={card.angulo_titulo || `Reel #${ci + 1}`}
+                    angleType={card.angulo_tipo || null}
+                    discard
+                  />
+                </>
+              )}
               {!gf.cerrado ? (
                 <button onClick={() => patchPropuesta(ci, pIdx, { guion_final: { ...gf, cerrado: true } })}
                   className="px-4 py-2 rounded-xl text-sm font-semibold text-white hover:opacity-90 flex items-center gap-1.5"
@@ -911,6 +934,24 @@ function MicroCard({ m, i, episodeId, isSel, hasDescript, toggleSel, feedback, s
           <CopyBtn text={punchline || cita} />
           <BankBtn payload={bankPayload} />
         </div>
+      </div>
+
+      {/* Sprint Publicación §3 A+D — enviar como propuesta o descartar */}
+      <div className="mt-2 ml-8 flex items-center gap-1.5 flex-wrap">
+        <SendToPublicacionesBtn
+          episodeId={episodeId}
+          source="minado"
+          refId={String(i)}
+          title={heading}
+          compact
+        />
+        <SendToPublicacionesBtn
+          episodeId={episodeId}
+          source="minado"
+          refId={String(i)}
+          title={heading}
+          discard
+        />
       </div>
 
       <div className="mt-2 ml-8">
@@ -1426,7 +1467,26 @@ function MedianosTab({ ep, onUpdate, onLearn }) {
                   )}
                 </div>
               </div>
-              <CopyBtn text={fullText} />
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Sprint Publicación §3 A+D */}
+                <SendToPublicacionesBtn
+                  episodeId={ep.id}
+                  source="mediano"
+                  refId={String(m.id || `m${mIdx}`)}
+                  title={m.titulo_trabajo || `Mediano ${mIdx + 1}`}
+                  angleType={m.tipo_angulo || null}
+                  compact
+                />
+                <SendToPublicacionesBtn
+                  episodeId={ep.id}
+                  source="mediano"
+                  refId={String(m.id || `m${mIdx}`)}
+                  title={m.titulo_trabajo || `Mediano ${mIdx + 1}`}
+                  angleType={m.tipo_angulo || null}
+                  discard
+                />
+                <CopyBtn text={fullText} />
+              </div>
             </div>
 
             {/* Inicio textual (cita) */}
@@ -1895,6 +1955,14 @@ export default function Home() {
                 <span style={{ color: activeView === "radar" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Radar</span>
               </button>
               <button
+                onClick={() => goTo("publicaciones")}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
+                style={{ background: activeView === "publicaciones" ? "rgba(234,88,12,0.15)" : "transparent" }}
+              >
+                <Send size={14} style={{ color: activeView === "publicaciones" ? "#EA580C" : "rgba(255,255,255,0.45)" }} />
+                <span style={{ color: activeView === "publicaciones" ? "#EA580C" : "rgba(255,255,255,0.65)" }}>Publicaciones</span>
+              </button>
+              <button
                 onClick={() => goTo("publico")}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-xs transition-all mb-1"
                 style={{ background: activeView === "publico" ? "rgba(234,88,12,0.15)" : "transparent" }}
@@ -2100,6 +2168,8 @@ export default function Home() {
           />
         ) : activeView === 'publico' ? (
           <PublicoView />
+        ) : activeView === 'publicaciones' ? (
+          <PublicacionesView />
         ) : activeView === 'learnings' ? (
           <LearningsReview onBack={() => setActiveView('inicio')} onApplied={() => setLearnings(prev => prev.map(l => l.status === 'draft' ? { ...l, status: 'reviewed' } : l))} />
         ) : activeView === 'protocolos' ? (
