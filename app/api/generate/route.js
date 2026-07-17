@@ -4,6 +4,13 @@ import { buildSystem, callClaude } from '@/lib/generation';
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
+// Tope de transcript enviado al modelo. Los episodios reales pesan 60k–110k
+// chars; el tope viejo de 30k (ángulos/minado) cortaba a la mitad y hacía
+// que los clips se amontonaran al inicio. Con 200k cubrimos todos los
+// episodios completos con margen y Sonnet maneja bien 200k tokens de context
+// (los chars siempre son < tokens; 200k chars ≈ 50k tokens de input).
+const TRANSCRIPT_CAP = 200_000;
+
 // ═══ MAIN HANDLER ═══
 export async function POST(req) {
   try {
@@ -28,7 +35,7 @@ export async function POST(req) {
     // Upload transcript → mapa + 20 ángulos
     if (phase === 'angles') {
       const system = await buildSystem(['adn', 'mapa-angulos']);
-      const tx = ep.transcript.substring(0, 30000);
+      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
       result = await callClaude(
         `Analiza esta transcripción y genera el mapa del episodio + 20 ángulos interesantes.
 
@@ -95,7 +102,7 @@ Responde SOLO con JSON válido:
     // Transcript → micro-content clips (con frase de inicio/cierre para Descript) + voz en off
     else if (phase === 'minado') {
       const system = await buildSystem(['adn', 'minado']);
-      const tx = ep.transcript.substring(0, 30000);
+      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
       const anglesCtx = (selected_angles || []).map(a => `- ${a.titulo}`).join('\n');
 
       result = await callClaude(
@@ -103,6 +110,17 @@ Responde SOLO con JSON válido:
 
 ÁNGULOS EDITORIALES SELECCIONADOS (para la voz en off):
 ${anglesCtx}
+
+COBERTURA TEMPORAL PAREJA (regla dura):
+- Los clips deben repartirse a lo largo de TODO el episodio: inicio, medio y final.
+- NO amontonar los clips en la primera media hora. Si un episodio dura 90 min, esperar
+  al menos ~1/3 de clips del primer tercio, ~1/3 del medio y ~1/3 del último tercio.
+- Si la transcripción trae timestamps ([mm:ss], mm:ss, [hh:mm:ss]), úsalos como guía
+  de distribución: revisa las marcas más tardías antes de decidir la lista final y
+  asegúrate de que la mayor esté cerca del final del episodio.
+- Si un tercio del episodio queda sin ningún clip, revísalo: probablemente estás
+  ignorando material fuerte por sesgo hacia el inicio. El final suele traer conclusiones
+  citables y "historias con remate" — no las descartes.
 
 REGLAS ESTRICTAS:
 - frase_inicio y frase_cierre son CITAS TEXTUALES EXACTAS de la transcripción (para anclar cortes en Descript). No parafrasees. No limpies. Copia literal como aparezcan (muletillas, puntuación).
@@ -238,9 +256,9 @@ ${tx}`,
     // Guardar en episodes.medianos_candidatos.
     else if (phase === 'medianos-candidatos') {
       const system = await buildSystem(['adn', 'medianos']);
-      // Transcript completo con timestamps — el modelo necesita ver las marcas para proponer rangos.
-      // Techo de 60k chars para dejar aire al system prompt sin exceder max context útil.
-      const tx = ep.transcript.substring(0, 60000);
+      // Transcript completo con timestamps — el modelo necesita ver las marcas
+      // para proponer rangos, incluyendo tramos del final del episodio.
+      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
       const mapaCtx = mapa
         ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}\nTENSIONES: ${(mapa.tensiones || []).join(' | ')}`
         : '';
@@ -294,7 +312,7 @@ ${tx}`,
     // Guardar en episodes.medianos.
     else if (phase === 'medianos-desarrollo') {
       const system = await buildSystem(['adn', 'medianos']);
-      const tx = ep.transcript.substring(0, 60000);
+      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
       const seleccionados = body.candidatos_seleccionados || [];
       const mapaCtx = mapa
         ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}`
