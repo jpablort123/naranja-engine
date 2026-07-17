@@ -1,16 +1,39 @@
 # CMO ENGINE — Biblia del Proyecto
 ## (Archivo de contexto para cualquier sesión futura de desarrollo)
-### Última actualización: 9 Julio 2026
+### Última actualización: 17 Julio 2026 · versión de la app: **v0.8 (Sprint Universo, en producción)**
 
 ---
 
 ## 1. QUÉ ES CMO ENGINE
 
-Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranja Media. Toma transcripciones de episodios de CMO Stories y genera todo el contenido de postproducción: títulos, descripciones, intros leídos, contenido para redes sociales, y minado de micro-contenido.
+### 1.1 El reencuadre (v0.8) — LEER PRIMERO
+
+Después del Sprint Estrategia (v0.7) y del Sprint Universo (v0.8), el sistema **cambió de identidad**. Dejó de ser principalmente "una fábrica de repurpose de episodios" y pasó a ser **"un producto y su universo de contenido"**. No es cosmético: reordena la navegación, el propósito y el vocabulario que usa el equipo. Toda decisión de diseño futura debe pasar por este filtro.
+
+**Los 8 principios rectores nuevos:**
+
+1. **El objeto central es el producto y su universo**, no el episodio-como-workspace. El verbo con el que se abre el sistema es **"observa tu universo"**. Producir sigue existiendo, pero se hace *desde adentro* del universo.
+2. **El modelo es un grafo; la representación NO es un grafo.** Todo está conectado (pieza → madre → hermanas → ángulo → suscriptores), pero nunca se muestra como nube de nodos tipo Obsidian. Cada pantalla es un subgrafo pequeño y legible. Grafo que se **navega**, no que se **contempla**. Regla dura: cada nodo sabe quiénes son sus vecinos y siempre hay forma de volver a casa.
+3. **Las entidades son nodos clickeables** (pieza, episodio, ángulo, suscriptor), no filas muertas.
+4. **La cara por defecto de un episodio sigue su ciclo de vida.** Fresco (nada publicado) → abre en el **taller** (las tabs de producción). Maduro (ya tiene piezas publicadas) → abre en su **Universo** (el mapa). El taller no se elimina; deja de ser el default de un episodio maduro y se entra deliberadamente.
+5. **Producir se hace dentro del mapa.** Clic en un nodo hace algo según su estado: propuesta → producir; publicada → ver resultados; descartada → ver el aprendizaje.
+6. **NO es un project manager.** Nada de pipelines de status (aprobado→grabado→editado). El equipo tiene su Excel para eso. El nodo lleva 3 estados y ya: **propuesta / publicada / descartada**.
+7. **Los ángulos son un eje de navegación de primera clase** — un `angle_type` clickeable muestra todas las piezas de ese ángulo a través de episodios (cross-episodios).
+8. **Insights como objetos** (claim + evidencia + "qué haría con esto"), no gráficas sueltas.
+
+**Producción / estrategia como CICLO DE VIDA, no como "dos modos".** JP originalmente propuso "dos modos con toggle". La conclusión: no son dos apps con un toggle; son dos caras del mismo objeto según su estado. Nace en taller, se gradúa a activo estratégico al publicar la primera pieza. El "modo producción" es un cuarto (taller) que se entra deliberadamente, anidado dentro del universo — no un muro paralelo.
+
+**La Parrilla se DISOLVIÓ** (decisión tomada en el Sprint Universo). Estaba confundiendo 3 trabajos distintos: (1) planear/programar → se va a **Metricool** (no reconstruir); (2) seguimiento de producción → es el estado del nodo, sin checklist de pipeline; (3) registro de lo publicado + resultados → **es el Universo**. No queda una "parrilla". El acto de publicación (pegar link / descartar con razón) es la bisagra que gradúa un episodio de taller a universo, y ocurre en el mapa. Ver §10.
+
+**Narrar** es una tercera postura (además de producir y observar): convertir el universo en una historia caminada para una audiencia (cliente, equipo). Es la superficie de venta/retención de la agencia. Ya existe un **preview** vivo — "Aprendizajes del mes" (§4 Sprint Universo). El modo Narrar completo es futuro.
+
+### 1.2 Qué es CMO Engine (descripción funcional)
+
+Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranja Media. Toma transcripciones de episodios de CMO Stories y genera todo el contenido de postproducción: títulos, descripciones, intros leídos, contenido para redes sociales, y minado de micro-contenido. Desde v0.7-v0.8 también **mide** ese contenido (published_items + métricas de YouTube/Metricool) y lo **narra** en el Universo del episodio.
 
 **El diferenciador principal** es un sistema de protocolos que aprende: el usuario da feedback sobre el contenido generado, los aprendizajes se acumulan silenciosamente durante la sesión, y al final el usuario revisa y aprueba cuáles son aprendizajes reales vs circunstanciales. Los aprobados se inyectan en los protocolos como capa adicional. Con cada episodio, el output mejora.
 
-**Primero se construye para JP.** Si después de semanas es increíble, se evalúa vender como SaaS a otros podcasters y creadores de YouTube.
+**Primero se construye para JP.** Si después de semanas es increíble, se evalúa vender como SaaS a otros podcasters y creadores de YouTube. La costura `product_id` (§3) ya está lista para el día que llegue un segundo producto — la UI actual sigue **CMO-only**.
 
 ---
 
@@ -30,6 +53,16 @@ Sistema de postproducción de podcasts construido para JP (Juan Pablo) de Naranj
 - `DESCRIPT_API_TOKEN` = token de la API de Descript (Production + Preview). Atado a un solo Drive de Descript
 - `NEXT_PUBLIC_SITE_URL` = `https://naranja-engine.vercel.app` (solo Production) — URL pública para el webhook de Descript
 - `CRON_SECRET` = secreto que protege el endpoint del cron; Vercel lo manda como `Authorization: Bearer` al disparar el cron (solo Production)
+
+### Variables de entorno del Sprint Estrategia / Universo (v0.7-v0.8)
+- `METRICS_PROVIDER` = `youtube` (o cualquier valor `!= 'mock'` para activar providers reales; `mock` para desarrollo/UI viva sin APIs)
+- `YOUTUBE_API_KEY` = API key de YouTube Data API v3 desde Google Cloud (sin OAuth). Se activa cuando `METRICS_PROVIDER != 'mock'`
+- `METRICOOL_TOKEN` = token de Metricool (Account Settings → API). Se manda en header `X-Mc-Auth`
+- `METRICOOL_USER_ID` = `4844353`
+- `METRICOOL_BLOG_ID` = `6285498` (blogId del brand de CMO — de la URL de Analítica)
+- `METRICOOL_WINDOW_DAYS` = opcional, ventana hacia atrás para pedir posts (default 365 días)
+- `METRICOOL_DEBUG` = opcional, `1` imprime `MATCH/NO MATCH` por pieza durante el sync
+- `CURRENT_PRODUCT_ID` = opcional (default al UUID de CMO `c0000000-0000-4000-8000-000000000001`). Se lee desde `lib/product.js`
 
 ---
 
@@ -51,6 +84,26 @@ protocol_history (id UUID PK, protocol_id UUID FK, previous_content TEXT, new_co
 ideas (id UUID PK, title TEXT, description TEXT, notes TEXT, category TEXT default 'undecided', temperature TEXT default 'cold', formats JSONB, angle TEXT, origin_url TEXT, origin_type TEXT, origin_id TEXT, status TEXT, generated_content JSONB, prompt_notes TEXT, parent_id UUID FK self, position INTEGER, created_at, updated_at)
 
 parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_type TEXT, origin_id UUID, origin_label TEXT, idea_group_id TEXT, idea_group_title TEXT, scheduled_date DATE, position INTEGER, checklist JSONB, status TEXT default 'inbox', created_at, updated_at)
+
+-- ═══ Sprint Estrategia (v0.7) — capa de medición ═══
+products (id UUID PK, name TEXT, slug TEXT UNIQUE, created_at)
+-- 1 fila: CMO Stories con UUID fijo c0000000-0000-4000-8000-000000000001 (constante).
+
+published_items (id UUID PK, title TEXT, content_type TEXT, platform TEXT, published_url TEXT, platform_post_id TEXT, utm_campaign TEXT, origin_type TEXT, origin_id UUID, origin_label TEXT, angle_type TEXT, creation_source TEXT, published_at TIMESTAMPTZ, status TEXT default 'publicada', discard_reason TEXT, product_id UUID default 'c0000000-0000-4000-8000-000000000001', created_at, updated_at)
+
+metric_snapshots (id UUID PK, published_item_id UUID FK → published_items ON DELETE CASCADE, platform TEXT, metric TEXT, value NUMERIC, captured_at TIMESTAMPTZ, created_at)
+
+subscribers (id UUID PK, email TEXT UNIQUE, subscribed_at DATE, source_platform TEXT, attributed_item_id UUID FK → published_items ON DELETE SET NULL, cargo TEXT, empresa TEXT, is_target BOOLEAN, status TEXT default 'nuevo', notes TEXT, product_id UUID default 'c0000000-0000-4000-8000-000000000001', created_at, updated_at)
+
+-- Vista (no tabla): última métrica por (published_item_id, metric).
+latest_metrics AS
+  SELECT DISTINCT ON (published_item_id, metric)
+    published_item_id, platform, metric, value, captured_at
+  FROM metric_snapshots
+  ORDER BY published_item_id, metric, captured_at DESC;
+
+-- product_id agregado también a episodes / newsletters / ideas (nullable,
+-- DEFAULT al UUID de CMO, backfilleado en la migración de v0.8).
 ```
 
 ### Cómo se usan las columnas en el flujo actual
@@ -83,13 +136,21 @@ parrilla_items (id UUID PK, title TEXT, content TEXT, content_type TEXT, origin_
 - `parrilla_items.origin_type` → `'episode' | 'newsletter' | 'fixture' | 'manual'`
 - `parrilla_items.idea_group_id` + `idea_group_title` → agrupan piezas que vienen de la misma idea. Cuando todas las piezas de un grupo están programadas o descartadas, el grupo desaparece del inbox.
 
+### Columnas del Sprint Estrategia / Universo (v0.7-v0.8)
+- `products` → tabla nueva, hoy con 1 fila (CMO Stories, UUID fijo `c0000000-0000-4000-8000-000000000001`). Es la costura multi-producto — no es multi-tenant. La UI no tiene selector; todo el código filtra por `CURRENT_PRODUCT_ID`.
+- `published_items` → una fila por pieza publicada / propuesta / descartada. `content_type`: `reel | mediano | linkedin | carrusel | corto | episodio | newsletter`. `platform`: `youtube | instagram | linkedin | tiktok | spotify | substack`. `angle_type` texto libre (sugeridos: `errores_mitos | tras_la_decision | datos_duros | historia_personal | otro`). `creation_source`: `sistema | idea_propia | minado_sistema | mixto`. `status`: **`publicada` (default) | `propuesta` | `descartada`** — los 3 estados del Universo. `discard_reason` solo aplica a `descartada` y además crea un `learning` draft asociado. `utm_campaign` la genera `lib/utm.js` a partir de `origin_label + content_type + platform`.
+- `metric_snapshots` → serie temporal (una fila por métrica por captura). `metric`: `reach | impressions | views | likes | comments | shares | saves | watch_time | engagement_rate`. La lectura normal se hace sobre la vista `latest_metrics`.
+- `subscribers` → fuente de la lista es el CSV de Substack (upsert por `email`). Foco: **conteo y crecimiento**. Las columnas `cargo` / `empresa` / `is_target` existen pero quedan **LATENTES** — ninguna vista de la app las nombra, mide ni filtra en esta versión. Se encenderán cuando la comunidad crezca (mindset "gente correcta" — fuera de scope v0.8).
+- `latest_metrics` (vista) → devuelve la última métrica por `(published_item_id, metric)`. Es la fuente para Radar, PiezaPanel, Linaje.
+- `product_id` en `episodes / newsletters / ideas / published_items / subscribers` → siempre setearlo en inserts nuevos (usar `withProductPayload` de `lib/product.js`); todo read filtra por `CURRENT_PRODUCT_ID` (usar `withProduct`). Nullable con DEFAULT al UUID de CMO, para no romper inserts viejos.
+
 > Los schemas exactos (defaults, constraints) están en Supabase — esta lista refleja las columnas que efectivamente se leen/escriben desde el código. Si aparecen columnas nuevas en la tabla que no están acá, revisar contra `app/api/episodes/route.js`, `app/api/newsletters/route.js` y los generadores en `app/api/generate/` y `app/api/newsletters/generate/`.
 
 ---
 
-## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.7)
+## 4. LO QUE EXISTE HOY EN PRODUCCIÓN (v0.8)
 
-La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios) + Integración Descript (cortes automáticos de micros y medianos sobre el episodio madre).
+La app está desplegada en Vercel con el flujo completo de ángulos + revisión de aprendizajes + visor de protocolos + banco de ideas (Fixture Kanban) + Newsletter (repurpose desde artículo) + Contenido Mediano (mini-episodios) + Integración Descript (cortes automáticos) + **capa de Estrategia** (Radar, Público, providers de métricas) + **Universo del episodio** (piezas en 3 estados navegables, PiezaPanel, AnguloView cross-episodios, Aprendizajes del mes).
 
 ### Lo que tiene y funciona (Sprint 1 COMPLETO)
 - Sidebar oscuro con lista de episodios + botón "Nuevo episodio"
@@ -224,10 +285,45 @@ Automatiza el corte de clips (micros y medianos) directamente sobre el episodio 
 - **Eliminar episodios y newsletters desde el sidebar:** botón basurita sutil en cada item, visible solo al hacer hover, con `confirm()` antes de borrar. Endpoints `DELETE /api/episodes?id=...` y `DELETE /api/newsletters?id=...` con limpieza en cascada previa: primero `learnings` (FK real probable), después `parrilla_items` e `ideas` filtrando por `origin_type` + `origin_id` (FK lógicas — limpieza para evitar huérfanos), y al final el recurso principal. Si el item borrado estaba seleccionado, `idx`/`nlIdx` se resetean y la vista cae al listado padre (`podcast` / `newsletter`).
 - **Upload de newsletters en `.docx` además de `.txt`/`.md`:** nuevo endpoint `POST /api/newsletters/extract` (runtime Node) que parsea el Word con `mammoth` y devuelve `{ text }` plano. El modal acepta `.docx`, muestra un loader naranja mientras extrae y muestra el error si el parseo falla. El texto extraído llega al mismo campo `articulo` que antes — el resto del pipeline (`POST /api/newsletters` → `/api/newsletters/generate`) no se tocó.
 
+### Sprint Estrategia ✅ COMPLETO (v0.7, 9 Julio 2026)
+Capa de medición sobre el sistema de producción, sin romperlo. Encendida por `SHOW_ESTRATEGIA=true` (default) en `app/page.js`.
+
+- **3 tablas nuevas** en Supabase (ver §3): `published_items`, `metric_snapshots`, `subscribers` + vista `latest_metrics`. RLS off en todas.
+- **Radar** (`components/estrategia/RadarView.jsx`) — la home nueva, reemplaza a "Inicio". `activeView='radar'` por default. Fusiona dos zonas: "Esta semana" (pulso — 4 metric cards + top piezas + último episodio) y "Qué funciona" (patrones — engagement por formato + por ángulo con barras horizontales que animan del 0 al ancho final). Decisión: Radar y "Qué funciona" en una sola página; se separarían solo cuando el análisis pida filtros/cohortes/export propios.
+- **Público** (`components/estrategia/PublicoView.jsx`) — suscriptores con import de CSV de Substack (Substack no tiene API; el CSV es el único camino). Foco: **conteo y crecimiento**. Métricas: Total / Nuevos 7d (con ↑/↓ vs previa) / Nuevos hoy. Enriquecimiento `cargo`/`empresa` latente y opcional en un panel lateral (createPortal), sin protagonismo — no cambia contadores ni entra en las vistas de esta versión.
+- **Linaje** — pestaña nueva en el workspace del episodio (renombrada a **Universo 🌐** en v0.8). Árbol madre → piezas → resultado con card oscuro `#18181B` para la madre (único dark permitido) y stubs por `strength` (verde 3px trajo subs · ámbar 2px alcance alto · gris 1px débil).
+- **Capa de providers de métricas** (`lib/metrics/`): abstracción con `index.js` (rutea por plataforma), `mock.js` (determinista por hash del id, para tener UI viva sin APIs), y stubs `youtube.js`/`metricool.js`/`spotify.js`. Contrato uniforme: `fetchMetrics(item) → [{metric, value}]`.
+- **`lib/utm.js`** genera UTMs (`utm_source=platform&utm_medium=content_type&utm_campaign=slug(origin_label)`); **`RegistrarPublicacionModal`** captura piezas publicadas y muestra la UTM copiable al terminar.
+- **Sidebar agrupado**: label "Estrategia" (Radar, Público) arriba del label "Producción" (Podcast, Newsletter, Fixture, Protocolos, Aprendizajes).
+- **Mindset de métricas (decisión de producto):** alcance, engagement y suscriptores son primarios. La capa "gente correcta / target" queda **LATENTE** — las columnas `is_target/cargo/empresa` existen pero **ninguna vista, copy ni métrica de esta versión las nombra**. Se enciende cuando la comunidad crezca.
+
+### Sprint Universo ✅ COMPLETO (v0.8, 12-17 Julio 2026)
+Evoluciona la capa de estrategia hacia el modelo de "producto y su universo de contenido" (§1.1).
+
+- **3 estados en `published_items`**: `publicada | propuesta | descartada`. Migración: `ADD COLUMN status TEXT DEFAULT 'publicada'` + `discard_reason`. Un descarte con razón además crea un `learning` draft asociado.
+- **Universo del episodio** (`LineageTab.jsx`, tab renombrada **Linaje → Universo 🌐**): muestra piezas en los 3 estados con **clic-según-estado**:
+  - `publicada` → abre `PiezaPanel` con métricas + vecinos.
+  - `propuesta` → salta a la tab de producción correspondiente (reel/carrusel → Reels; minado/corto → Minado; mediano → Medianos), con `onGoToWorkshopTab`.
+  - `descartada` → panel con la razón + nota "guardado como aprendizaje draft".
+  Filtro segmentado arriba: `Todo · Publicado · Propuestas · Descartadas`.
+- **Cara por defecto por ciclo de vida**: al abrir un episodio existente, un `useEffect` consulta `/api/published?status=publicada&origin_id=...`; si tiene ≥1 pieza publicada, la tab default pasa a `linaje`. Si es fresco (`phase` en `angles/contenido/minado`), se respeta el flujo de producción — no se toca el default.
+- **Navegabilidad del grafo** (`PiezaPanel.jsx`, `AnguloView.jsx`, ambos via createPortal): panel lateral con métricas + serie SVG mini de reach + **madre clickeable** (abre Universo de la madre) + **hermanas cross-plataforma** + **ángulo clickeable** (abre `AnguloView` — todas las piezas del producto con ese `angle_type` a través de episodios, con agregados). Nuevos endpoints: `GET /api/published/[id]` y `GET /api/angulos/[angle_type]`.
+- **Radar clickeable**: cada pieza de "Top piezas" abre `PiezaPanel`; las barras de "Qué engancha por ángulo" son botones que abren `AnguloView`. El "Ver linaje →" del último episodio salta al workspace + tab Universo.
+- **Aprendizajes del mes** (`AprendizajesDelMes.jsx` + `lib/aprendizajes-demo.js`): carrusel full-screen de **8 insights senior HARDCODEADOS/demo** (`isDemo: true`, chip DEMO removible en la UI). Es el preview de "narrar" — estilo "wrapped pero senior": eyebrow + claim afilado + evidencia + viz mínima + callout "Qué haría con esto". Navegación con flechas del teclado + clicks. Botón de entrada en el Radar arriba a la derecha. **El motor real que calcula insights NO está construido** (conversación futura).
+- **Costura multi-producto**: tabla `products` con UUID fijo para CMO + `product_id` en `episodes/newsletters/published_items/subscribers/ideas` (nullable, DEFAULT al UUID de CMO, backfilleado). `lib/product.js` expone `CURRENT_PRODUCT_ID` (env con default) + helpers `withProduct(query)` y `withProductPayload(payload)`. La UI sigue **CMO-only** (sin selector). No es multi-tenant.
+- **Provider de YouTube real** (`lib/metrics/youtube.js`): YouTube Data API v3 con API key (sin OAuth). `extractVideoId` soporta `watch?v=`, `youtu.be/`, `shorts/`, `embed/`. Devuelve `views`, `likes`, `comments` + `engagement_rate = (likes + comments) / views × 100`. Se activa con `METRICS_PROVIDER != 'mock'` + `YOUTUBE_API_KEY`.
+- **Provider de Metricool real** (`lib/metrics/metricool.js`): cubre Instagram / LinkedIn / TikTok. Auth: header `X-Mc-Auth: <token>` + query `userId` + `blogId`. Cache in-memory por (endpoint, ventana) con TTL 5 min — un sync con 40 reels pega a Metricool 1 vez, no 40. Ventana default 365 días. Ruteo por (plataforma + URL + content_type) a **4 endpoints reales** (§18). Match por URL normalizada + shortcode + IDs numéricos largos. **Sync real medido:** ~137 items → ~701 snapshots, 91% match rate.
+- **Fix:** plataformas sin provider (substack para newsletters) devuelven `[]` (sin métrica). Ya NO caen al mock — el mock solo se usa con `METRICS_PROVIDER=mock` explícito.
+- **Registrar publicación** (`RegistrarPublicacionModal.jsx`) evolucionado con selector de `status` (Publicada / Propuesta / Descartada) y campo condicional de `discard_reason`.
+
 ### Lo que NO funciona todavía
-- No hay chat embebido con contexto → Sprint 4
-- No hay métricas reales de redes alimentando protocolos → Futuro
-- **Parrilla oculta en UI:** el código completo del Sprint 3A (inbox + 3 vistas de calendario + drag-and-drop + checklists) sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`), pero un feature flag `SHOW_PARRILLA = false` en `app/page.js` y `components/ui.jsx` esconde el ítem del sidebar y el botón "Enviar a Parrilla" en las secciones que lo tenían. La vista sigue navegable si se fuerza `activeView='parrilla'`. Para reactivar: flipear el flag en ambos archivos.
+- No hay chat embebido con contexto → Sprint 4.
+- El motor real de insights (los "Aprendizajes del mes" siguen siendo demo/hardcodeados) → futuro.
+- El modo Narrar completo (hoy solo el preview) → futuro.
+- **La capa de identidad / target sigue LATENTE**: `is_target`, `cargo`, `empresa` existen en `subscribers` pero ninguna vista los nombra. Se enciende cuando la comunidad crezca.
+- **No hay autenticación**: la app no tiene login; quien tenga el URL entra. Con RLS off + anon key expuesta, el acceso es abierto. Aceptable para uso interno; resolver antes de abrir a clientes.
+- **Providers reales de Metricool/YouTube listos pero no todos activos:** Metricool y YouTube funcionan; Spotify sigue como stub (no hay API oficial de analíticas de creador — llenado manual). Substack no tiene provider; sus piezas quedan sin métrica.
+- **Parrilla DISUELTA** — el código sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`) pero fuera del flujo de v0.8. Ver §10.
 
 ---
 
@@ -622,13 +718,23 @@ SIEMPRE disponible tanto edición manual directa (click para editar cualquier te
 
 ---
 
-## 10. PARRILLA — implementada en Sprint 3A, hoy OCULTA por feature flag
+## 10. PARRILLA — DISUELTA (Sprint Universo, v0.8)
 
-**Estado actual:** el código completo del Sprint 3A vive en el repo (inbox + 3 vistas de calendario, checklist por tipo, ghost slots, drag-and-drop), pero el feature flag `SHOW_PARRILLA = false` (en `app/page.js` y `components/ui.jsx`) esconde el ítem del sidebar y el botón "Enviar a Parrilla" en las secciones que lo tenían (Repurpose, Minado, Fixture, Newsletter). Los endpoints `/api/parrilla/*` siguen activos.
+**Decisión tomada en el Sprint Universo:** la Parrilla se **disuelve** como concepto de producto. Estaba confundiendo tres trabajos distintos:
 
-**Por qué está oculta:** decisión de producto puntual — la vista completa vive en el repo esperando reactivación cuando JP retome ese flujo. Para reactivarla: flipear el flag a `true` en los dos archivos.
+1. **Planear / programar publicaciones** → se va a **Metricool** (JP ya tiene un plan Advanced con calendario y publicación cross-platform; no reconstruir lo que ya existe fuera).
+2. **Seguimiento de producción / status** → es el estado del nodo en el Universo (§4 Sprint Universo), sin checklist de pipeline. Nada de "aprobado → grabado → editado → publicado" — la app **NO es un project manager** (§1.1 principio 6). El equipo ya tiene su Excel para el flujo operativo.
+3. **Registro de lo publicado + resultados** → **es el Universo**. La bisagra que gradúa un episodio de taller a activo estratégico es el acto de publicación (pegar link vía `RegistrarPublicacionModal` / descartar con razón), y ocurre en el mapa.
 
-Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to-end está en sección 6 → "Flujo de Parrilla". El schema vive en sección 3 → tabla `parrilla_items`.
+**Estado del código:** el código completo del Sprint 3A sigue en el repo (`components/ParrillaView.jsx`, `app/api/parrilla/*`, tabla `parrilla_items`), pero está fuera del flujo de v0.8:
+
+- Feature flag `SHOW_PARRILLA = false` en `app/page.js` y `components/ui.jsx` sigue apagado.
+- El sidebar no lo muestra y el botón "Enviar a Parrilla" no aparece en Repurpose / Minado / Fixture / Newsletter.
+- La vista sigue navegable si se fuerza `activeView='parrilla'` (útil solo para auditar el código antes de borrarlo).
+
+**Roadmap del código:** no hay plan activo de reactivarla. Cuando llegue el momento de limpieza, se puede borrar sin bajar producción. La tabla `parrilla_items` se puede archivar/borrar (no la referencia nadie desde el flujo v0.8).
+
+Ver §4 → "Sprint 3A" para la historia de qué construyó la Parrilla en su día. El schema vive en §3 → tabla `parrilla_items` (histórica).
 
 ---
 
@@ -729,13 +835,46 @@ Ver sección 4 → "Sprint 3A" para el detalle de lo construido. El flujo end-to
 - ✅ Medianos con un solo botón "Desarrollar y enviar a Descript"
 - ✅ Env de producción: `DESCRIPT_API_TOKEN`, `NEXT_PUBLIC_SITE_URL`, `CRON_SECRET`
 
+### Sprint Estrategia ✅ COMPLETO (v0.7, 9 Julio 2026)
+- ✅ Migración `migrations/sprint-estrategia.sql`: 3 tablas nuevas + vista `latest_metrics`, RLS off
+- ✅ Capa de providers de métricas (`lib/metrics/index.js` + mock implementado + stubs YouTube/Metricool/Spotify)
+- ✅ `lib/utm.js` genera UTMs; `RegistrarPublicacionModal` captura piezas publicadas
+- ✅ API routes: `/api/published` (+ `/import` con papaparse), `/api/metrics` + `/sync`, `/api/subscribers` + `/import`, `/api/radar`, `/api/episodes/[id]/linaje`
+- ✅ RadarView (pulso 7d + patrones), PublicoView (crecimiento + import CSV + panel latente de enriquecimiento), LineageTab (árbol madre → piezas → resultado)
+- ✅ Feature flag `SHOW_ESTRATEGIA=true`; sidebar agrupado Estrategia/Producción; `activeView='radar'` por default
+- ✅ `components/estrategia/` agregado al `content` de `tailwind.config.js`
+- ✅ Seed opcional `scripts/seed-estrategia.mjs` para ver UI viva sin APIs reales
+
+### Sprint Universo ✅ COMPLETO (v0.8, 12-17 Julio 2026)
+- ✅ Migración `migrations/sprint-universo.sql`: `status` + `discard_reason` en `published_items`, tabla `products` (UUID fijo CMO), `product_id` en tablas core con DEFAULT + backfill; RLS off
+- ✅ Universo del episodio con **3 estados** (publicada / propuesta / descartada) + clic-según-estado + filtro segmentado + cara por default según ciclo de vida
+- ✅ Registrar/descartar piezas: modal con selector de status; descartar crea `learning` draft
+- ✅ Navegabilidad del grafo: `PiezaPanel` (vecinos clickeables), `AnguloView` cross-episodios, Radar clickeable
+- ✅ Endpoints nuevos: `GET /api/published/[id]`, `GET /api/angulos/[angle_type]`
+- ✅ **Aprendizajes del mes** (preview de Narrar): carrusel full-screen de 8 insights DEMO hardcodeados (`isDemo:true`, chip DEMO removible)
+- ✅ Costura multi-producto: `lib/product.js` + `CURRENT_PRODUCT_ID` + `withProduct`/`withProductPayload` aplicados en todos los inserts/reads core
+- ✅ Provider YouTube real (Data API v3, API key sin OAuth) — se activa con `METRICS_PROVIDER != 'mock'` + `YOUTUBE_API_KEY`
+- ✅ Provider Metricool real (IG reels, IG posts, LinkedIn, TikTok) — 4 endpoints correctos por red; cache por (endpoint, ventana); match por URL + shortcode + IDs largos; medido 91% match rate en producción
+- ✅ Fix: plataformas sin provider devuelven `[]` (no caen al mock) — evita métricas falsas en newsletters de Substack
+- ✅ Datos reales cargados: 4 episodios reales, 5 newsletters, 137 piezas importadas vía CSV, métricas YouTube (34) + Metricool (~99 IG/TT/LI)
+- ✅ Desplegado a producción (Vercel auto-deploy desde `main` tras merge de `sprint-universo`)
+
 ### Sprint 4 — Chat embebido + pulido (PENDIENTE)
-- Panel lateral con contexto automático (episodio / idea / protocolo / slot de parrilla)
-- Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio", "Programar en parrilla")
+- Panel lateral con contexto automático (episodio / idea / protocolo / pieza del Universo)
+- Botones de acción ("Crear idea en fixture", "Actualizar protocolo", "Aplicar cambio")
 - Pulido general
 
-### Futuro
-- Métricas reales de redes → alimentan protocolos automáticamente
+### Futuro (actualizado tras Sprint Universo)
+- **Motor real de insights** (los "Aprendizajes del mes" hoy son demo/inventados) — reemplaza `lib/aprendizajes-demo.js` con un cálculo real sobre `metric_snapshots + published_items + subscribers`
+- **Modo Narrar completo** (hoy solo el preview) — convertir el Universo en historia caminada para clientes/equipo, superficie de venta/retención de la agencia
+- **Encender la capa de identidad / target** (columnas `is_target/cargo/empresa` ya existen latentes) — cuando la comunidad crezca; agrega vistas de "quién entró por qué pieza"
+- **Enriquecer la card madre** con métricas propias del episodio (CTR, % visto, watch time de YouTube — ya pulleables; profundidad de Spotify vía Rubén / manual). Ver §20.
+- **El cruce diferenciador**: retención del episodio × desempeño de la pieza, unidos por el ángulo (algo que solo CMO puede computar). Ver §20.
+- **Plataforma multi-producto** (auth, roles, onboarding, config por cliente, billing) — la costura `product_id` ya está lista
+- **Autenticación / login** (deuda actual: la app es abierta al que tenga el URL)
+- **LinkedIn matching completo**: registrar piezas con URLs `feed/update/urn:li:share:{ID}` para cerrar el gap (§18)
+- **Chrome explícito de "modo producción"** (por ahora basta el default por ciclo de vida)
+- **Sync de métricas programado** (cron diario) — hoy es manual (curl al endpoint)
 - MCP para conectar Claude.ai con el sistema
 - Bandeja de entrada / Google News interno
 - Espacio de feedback agregado (comentarios, DMs, socia)
@@ -804,6 +943,13 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 19. **Al delegar código a un agente con "la migración ya está corrida", el esquema real DEBE tener todas las columnas que el código asume.** El build pasa aunque falten columnas (compilar no toca la DB), pero explota en runtime al primer insert/update. Pasó con `descript_jobs` (le faltaban `descript_project_id`, `prompt`, `meta`, `started_at`, `completed_at`, `descript_response`) y con `episodes.descript_composition_name`. Verificar columnas contra el código antes de asumir que la migración quedó completa (`supabase-migration-descript-fix.sql` documenta el fix).
 20. **Las URLs web de Descript usan un id corto de 5 caracteres**, no el UUID completo: `web.descript.com/{project_id}/{primeros 5 chars del composition_id}`. Con el UUID completo el link no aterriza en el clip. Y ojo: **el cron de Vercel solo corre en PRODUCCIÓN, no en preview** — en preview la cola avanza por el heartbeat de la pestaña abierta.
 21. **Descript serializa por proyecto: solo un `/jobs/agent` a la vez por proyecto.** Un segundo job sobre el mismo proyecto se rechaza con "already running". Por eso la cola (`descript_jobs`) se procesa de a uno por `project_id`; nunca dispararlos en paralelo sobre el mismo episodio.
+22. **Supabase reactiva RLS en tablas nuevas más de lo que uno espera.** Tras correr una migración que crea tablas, verificar `select relname, relrowsecurity from pg_class where relname in ('published_items','metric_snapshots','subscribers','products')` y volver a correr `ALTER TABLE ... DISABLE ROW LEVEL SECURITY` si quedó en true (le pasó a las 3 tablas de v0.7 y a `products` de v0.8). El síntoma es que los inserts/selects no fallan pero devuelven 0 filas silenciosamente.
+23. **Un script de Node "pelado" NO carga `.env.local`.** Correr con `node --env-file=.env.local script.mjs` (o exportar las vars antes). Next.js sí lo carga en runtime; un script suelto (ej. `scripts/seed-estrategia.mjs`) no. Sin esto, el script conecta con credenciales `undefined` y falla en la primera query.
+24. **El endpoint de Metricool difiere por red y tipo de contenido** — NO es `/posts/{network}` genérico (esa era la referencia no oficial que teníamos). Ver §18. La primera implementación con path genérico devolvía métricas casi vacías para IG/TT/LI porque la mayoría del contenido de IG son **reels** y viven en un endpoint distinto (`/v2/analytics/reels/instagram`). Verificar siempre contra el swagger oficial (`https://app.metricool.com/api/swagger.json`).
+25. **Plataformas sin provider deben devolver `[]`, NO caer al mock** — si no, muestran métricas falsas. Le pasó a los newsletters de Substack: el mock del provider genérico les inventaba alcance/engagement. Fix en `lib/metrics/index.js`: si no hay provider registrado para la plataforma, retornar `[]` directamente (el mock solo se usa con `METRICS_PROVIDER=mock` explícito, no como fallback).
+26. **El importer matchea la madre por nombre EXACTO** — crear/renombrar los episodios/newsletters ANTES de importar, o las piezas entran huérfanas (`origin_id=null`) y no cuelgan del Universo. El importer normaliza el label pero no hace fuzzy: si el CSV dice "Ep. 001 · Silvia Ramirez" y la tabla `episodes.name` dice "Ep. 001 - Silvia Ramirez" (guion en vez de "·"), no matchea. Workflow: `truncate published_items cascade` para limpiar seed antes de re-importar real.
+27. **La card "madre" del Universo solo muestra métricas propias del episodio si existe una `published_item` con `content_type='episodio'`** apuntando a ese episodio con URL de YouTube. Sin esa fila, la madre queda vacía aunque el episodio esté publicado. Fix: agregar una fila `content_type='episodio' + platform='youtube' + published_url` por cada episodio.
+28. **Servidores `next dev` huérfanos ocupan puertos** (3000 → 3001 → 3002 → ...). Al terminar una sesión de dev, limpiar con `lsof -ti:3000,3001,3002,3003 | xargs kill -9` para arrancar limpio en 3000. Si no, Next.js elige el siguiente puerto libre y las URLs de referencia dejan de coincidir.
 
 ---
 
@@ -814,11 +960,11 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 - ¿Cómo entra el feedback de Daniela? (Un campo de "notas y comentarios" en cada idea — hoy entra en el textarea de notas del panel)
 - ¿Cada cuántos episodios hacer el "protocol refresh" de consolidar aprendizajes al protocolo base? (Propuesta: 10-15 episodios)
 - ¿Los intros deberían generarse en Fase 2 (junto con títulos) en vez de en Repurpose? Conceptualmente son producción del episodio, no repurpose. Actualmente están en Repurpose por simplicidad de UX.
-- ¿La Parrilla debería integrarse con Buffer/Later/Metricool en una iteración futura, o se queda en flujo manual (JP copia el contenido y publica en cada plataforma)?
+- ~~¿La Parrilla debería integrarse con Buffer/Later/Metricool en una iteración futura?~~ → **Resuelto en Sprint Universo:** la Parrilla se disolvió (§10). Planear/programar se hace en Metricool (fuera de la app); registrar lo publicado + resultados vive en el Universo.
 - ¿Newsletter sigue siendo no-generable desde el Fixture o se construye un protocolo de Newsletter para el Engine? (Nota: el Newsletter YA existe como flujo separado con su propio sidebar y sus fases de `ideas` + `repurpose`; la pregunta abierta es si además se puede disparar generación de newsletter desde una idea del Fixture.)
-- **Medianos:** ¿los medianos desarrollados deberían poder enviarse a la Parrilla (cuando se reactive) como pieza tipo `episodio` o merecen su propio `content_type`?
+- **Medianos:** ~~¿los medianos desarrollados deberían enviarse a la Parrilla como pieza tipo `episodio` o content_type propio?~~ → Ya tienen `content_type='mediano'` en `published_items` (Sprint Universo). La pregunta muere con la Parrilla.
 - **Medianos:** ¿el "protocol refresh" que consolida aprendizajes a base del protocolo debería contemplar dos cadencias distintas (una para protocolos calientes tipo `medianos` y otra para los estables tipo `adn`)?
-- ¿Es momento de reactivar la Parrilla (flipear `SHOW_PARRILLA`) ahora que Newsletter y Medianos alimentan el pipeline, o esperar a Sprint 4?
+- ~~¿Reactivar la Parrilla?~~ → Cerrado: se disolvió en Sprint Universo (§10). El código sigue en el repo pero fuera del flujo.
 
 ---
 
@@ -830,3 +976,106 @@ Los **9 protocolos** están cargados en la tabla `protocolos` de Supabase. Los 7
 - **API Key Anthropic:** clave "naranja-engine" en console.anthropic.com
 - **Notion:** workspace de CMO Stories, protocolos bajo "📋 Protocolos"
 - **Descript:** API token creado en Descript → Settings → API tokens, atado al Drive de Naranja Media (donde viven los episodios). Guardado en Vercel como `DESCRIPT_API_TOKEN`. La app usa la API REST directamente (server-side); en Cowork/Claude se usó el conector MCP de Descript para las pruebas
+- **YouTube Data API:** API key creada en Google Cloud Console (proyecto asociado a la cuenta de Naranja). Sin OAuth (usa solo el endpoint `/videos?part=statistics`). Guardada en Vercel como `YOUTUBE_API_KEY`. Se activa cuando `METRICS_PROVIDER != 'mock'`
+- **Metricool:** plan Advanced de la cuenta de Naranja. Token en Account Settings → API. `userId=4844353`, `blogId=6285498` (blog del brand CMO Latam). Endpoints en `https://app.metricool.com/api`; auth con header `X-Mc-Auth: <token>` + query `userId` + `blogId`. Ver §18 para el listado de endpoints por red
+
+### Estado de despliegue y notas operativas
+- **Rama principal:** `main` (deploy automático a Production en Vercel). Sprint Universo mergeado a `main` (fast-forward) el 17 Jul 2026
+- **Preview deployments:** cada push a una rama arma un preview. El webhook de Descript (`NEXT_PUBLIC_SITE_URL`) solo apunta a Production, así que en preview la cola de Descript avanza por heartbeat / cron manual
+- **Sync de métricas en producción es manual** por ahora — se dispara con `curl -X POST https://naranja-engine.vercel.app/api/metrics/sync -H 'content-type: application/json' -d '{}'`. Futuro: tarea programada diaria (`vercel.json` + un endpoint tipo `/api/metrics/cron`)
+- **⚠️ Sin autenticación (deuda conocida):** la app no tiene login. Quien tenga el URL entra. Con RLS off en todas las tablas + anon key expuesta al cliente, el acceso es completamente abierto. Aceptable para uso interno (equipo de Naranja); **resolver auth antes de abrir a clientes o vender como SaaS**
+
+---
+
+## 18. ARQUITECTURA DE MÉTRICAS (v0.7-v0.8)
+
+### Ruteo de providers (`lib/metrics/index.js`)
+Un solo selector por `platform`. Con `METRICS_PROVIDER=mock` (default de dev) todo va al mock determinista. Con cualquier otro valor:
+
+- `youtube` → `lib/metrics/youtube.js` (real)
+- `instagram / linkedin / tiktok` → `lib/metrics/metricool.js` (real)
+- `spotify` → `lib/metrics/spotify.js` (stub, sin API oficial)
+- **cualquier otra plataforma** (ej. `substack`) → devuelve `[]` (NO cae al mock, ver error 25). El mock solo se activa con `METRICS_PROVIDER=mock` explícito.
+
+Contrato uniforme: `fetchMetrics(item) → Promise<[{metric, value}]>`. Cada provider decide su ventana, cachea si conviene, y traduce a métricas normalizadas (`reach | impressions | views | likes | comments | shares | saves | engagement_rate | watch_time`).
+
+### YouTube (`lib/metrics/youtube.js`)
+- YouTube Data API v3 con **API key** (sin OAuth) — `GET https://www.googleapis.com/youtube/v3/videos?part=statistics&id={videoId}&key={KEY}`
+- `extractVideoId(url)` soporta `youtube.com/watch?v=`, `youtu.be/`, `youtube.com/shorts/`, `youtube.com/embed/`
+- Mapea `viewCount → views`, `likeCount → likes`, `commentCount → comments`; deriva `engagement_rate = (likes + comments) / views × 100` (2 decimales)
+- Futuro (fuera de v0.8): sumar YouTube Analytics API (retención, watch_time, tráfico) vía OAuth — requiere `YOUTUBE_CLIENT_ID/SECRET/REFRESH_TOKEN`
+
+### Metricool (`lib/metrics/metricool.js`)
+- **Auth**: header `X-Mc-Auth: <METRICOOL_TOKEN>` + query `userId` + `blogId`. El token NO va también como query (con el header basta).
+- **Endpoints reales por red** (críticos — verificados contra `https://app.metricool.com/api/swagger.json` y probados con curl):
+  - IG **reels** (la mayoría del contenido) → `GET /v2/analytics/reels/instagram`
+  - IG posts/carruseles → `GET /v2/analytics/posts/instagram` (URLs `/p/{shortcode}/`)
+  - LinkedIn → `GET /v2/analytics/posts/linkedin`
+  - TikTok → `GET /v2/analytics/posts/tiktok` (devuelve JSON pese al `"CSV"` del summary del swagger)
+- Query params obligatorios: `from`, `to` (ISO 8601 `2026-07-16T23:59:59`)
+- **Ruteo por (plataforma + URL + content_type)** dentro del provider:
+  - IG: `/reel/` o `/reels/` en el URL → endpoint de reels; `/p/` → endpoint de posts; sin URL clara, se decide por `content_type` (`reel/corto` → reels; `carrusel/carousel/post` → posts); último recurso, prueba ambos
+  - LinkedIn / TikTok: endpoint único por red
+- **Cache in-memory** por `(endpoint, ventana)` con TTL 5 min: un sync con 40 reels de IG pega a Metricool una sola vez, no 40
+- **Matching pieza ↔ post** (prioridad):
+  1. URL normalizada exacta (lowercase, sin `www.`, sin trailing slash, sin query, sin fragment)
+  2. Última parte del path (shortcode de IG, videoId de TikTok)
+  3. `platform_post_id` contra `postId/reelId/videoId/mediaId/activityId`
+  4. IDs numéricos largos (≥15 dígitos) en URL vs `postId/url` de Metricool
+- **Ventana** default 365 días (`METRICOOL_WINDOW_DAYS`), subir si se re-sincroniza contenido viejo
+
+### Limitación conocida — LinkedIn
+LinkedIn asigna IDs distintos (`activity-{X}` en el URL de "compartir" vs `urn:li:share:{Y}` que devuelve Metricool) para la misma publicación. Verificado empíricamente: **los URLs `/posts/{slug}-activity-{ID}-...` NO matchean por diseño**. Workaround: registrar la pieza con el URL `feed/update/urn:li:share:{ID}` cuando aparezca (algunas variantes del botón compartir lo dan). Los shortlinks de Metricool (`mtr.cool/...`) tampoco matchean — siempre URL canónica de la red. Impacto real hoy: ~13 posts de LinkedIn quedan sin métrica de un total de ~99 piezas cross-platform (~87% cobertura).
+
+### Spotify
+Sin API oficial de analíticas de creador (confirmado). La profundidad de consumo (horas, TCP, retención, seguidores) NO se puede jalar sola. Provider queda como stub retornando `[]`. Alternativas futuras: llenar a mano por CSV (Spotify for Podcasters exporta), o traer desde el sistema de Rubén (§20).
+
+### Resultado real medido (16-17 Jul 2026)
+- Sync completo del proyecto real: **137 piezas** procesadas → **~701 snapshots** insertados. Match rate ~91% (198 MATCH / 20 NO MATCH, casi todos LinkedIn por el gap de arriba).
+- YouTube: 34 piezas con views/likes/comments/engagement reales
+- Metricool (IG/TT/LI): ~99 piezas con reach/impressions/likes/comments/shares/saves/engagement reales
+
+---
+
+## 19. DATOS REALES CARGADOS (estado del proyecto)
+
+- **Episodios reales** (renombrados desde nombres de prueba, NO se crearon vacíos, para conservar su producción — transcript/mapa/minado): **Ep. 001 · Silvia Ramirez**, **Ep. 002 · Andrés Jaramillo**, **Ep. 003 · Karla Traconis**, **Ep. 004 · Luis Godinez**. Se borraron los duplicados/prueba.
+- **5 newsletters** creados (Newsletter #1–#5), con `articulo='(pendiente)'` (NOT NULL). Contenido real pendiente de cargar.
+- **137 piezas reales importadas** vía `POST /api/published/import` desde el Excel de reconstrucción de linaje (`CMO-reconstruccion-linaje.xlsx`, pestaña "Piezas publicadas" → CSV). Columnas mapeadas a `published_items`. **136 con madre resuelta, 1 manual.**
+- **Métricas reales vivas:** YouTube (34 piezas) + Metricool IG/TikTok/LinkedIn (~99). Ver §18 → resultado medido.
+
+### Gap conocido: card "madre" del Universo sin métricas
+La card oscura de "madre" en el Universo solo muestra métricas propias del episodio si existe una `published_item` con `content_type='episodio'` y `platform='youtube'` para ese episodio. Hoy solo el Ep. 001 la tiene. Para que las demás madres muestren sus vistas de YouTube, agregar una fila por episodio con esa combinación + URL del video completo (ver error 27). El sync levanta las métricas automáticamente.
+
+### Workflow de reconstrucción (para futuros / otros productos)
+1. Plantilla Excel con columnas: `madre_tipo` (episode|newsletter) · `madre` (nombre EXACTO del episodio/newsletter) · `titulo_pieza` · `tipo_contenido` (reel|mediano|linkedin|carrusel|corto|episodio|newsletter) · `plataforma` · `url_publicada` · `post_id` · `tipo_angulo` · `fuente_creacion` · `fecha_publicacion` · `notas`
+2. **Antes de importar real**: `truncate published_items cascade` para limpiar seed, y **crear/renombrar las madres con el nombre EXACTO** que trae el CSV. El importer matchea `origin_label` contra `episodes.name` / `newsletters.name` (ver error 26)
+3. Exportar la pestaña a CSV
+4. `POST /api/published/import` (multipart file) — devuelve `{ importados, con_madre, sin_madre }`
+5. Correr sync: `POST /api/metrics/sync {}` (levanta métricas reales para todas las piezas con URL matcheable)
+6. Verificar en Radar / Universo / PiezaPanel
+
+---
+
+## 20. CONTEXTO ESTRATÉGICO — el sistema de métricas de Rubén (referencia)
+
+Naranja tiene tableros internos propios (de Rubén) con métricas de **Spotify + YouTube** a nivel de **show y portafolio** (15+ shows de clientes de la agencia), con un índice compuesto ("Love Score"). Convive con CMO Engine; no lo reemplaza ni lo compite. Evaluación de cómo se relacionan:
+
+### Miden cosas distintas (no son competencia)
+- **Rubén** = consumo del **activo central** (el show en sí), a nivel show/portafolio. Es el termómetro del producto.
+- **CMO Engine** = dispersión del **universo derivado** (piezas de repurpose), a nivel pieza, un producto. Es el mapa de la propagación.
+- **Se tocan solo en "CMO Latam"** — que es *un* show del portafolio de Rubén *y* el producto único de CMO Engine hoy. En ese overlap es donde tiene sentido traer datos de un lado al otro.
+
+### Qué traer a CMO (accionable, no ruido)
+- **Palancas de consumo del episodio** para llenar la card "madre" del Universo (§19 gap conocido):
+  - YouTube: **CTR, % medio visto, watch time** (jalable via YouTube Analytics API con OAuth — hoy tenemos solo Data API con key)
+  - Spotify: **horas, TCP, seguidores** (no hay API oficial → vendría manual o desde el sistema de Rubén)
+- **El cruce diferenciador** que solo CMO puede computar: **retención del episodio × desempeño de la pieza derivada, vía el ángulo**. Ejemplo: "los ángulos de 'errores/mitos' del Ep. 001 tuvieron 6.1% engagement en piezas, pero coinciden con la caída de retención del episodio en 12:34 — el ángulo engancha en el corto pero pierde en el largo". Ese hallazgo no vive en Rubén ni en Metricool ni en YouTube — solo emerge cuando unes ambos ejes por `angle_type`.
+
+### Qué NO traer (scope creep)
+- **El portafolio de 15 shows** — eso es el tablero de Rubén; CMO Engine es *un* producto. Cuando se active `product_id` como plataforma multi-producto (§12 futuro), la home multi-producto de CMO converge conceptualmente con el portafolio de Rubén — mismo destino, puerta distinta.
+- **El "Love Score" como número** — es una caja negra relativa al portafolio (comparativo entre shows). Quedarse con la **filosofía / cuadrante** (consumo × comunidad, algo así), no con el número.
+- **Las "Señales" del Termómetro** — bluff. **Los "Aprendizajes del mes" (§4 Sprint Universo)** ya son la versión resuelta de esa idea (claim + evidencia + acción).
+
+### Nota sobre el mockup "más estratégico" que hizo Rubén
+Los tableros nuevos que él está diseñando (veredicto → número → acción, show como unidad de análisis) **convergen en la misma filosofía** que CMO Engine v0.8 tomó: el valor no es el data lake, es la distilación en insight accionable. Cuando ambos sistemas empujen contenido a la app-portafolio, este documento va a necesitar una sección conjunta que describa cómo se sincronizan.
