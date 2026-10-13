@@ -60,6 +60,9 @@ export async function POST(req) {
       if (typeof r?.transcript === 'string') return r.transcript;
       if (typeof r?.text === 'string') return r.text;
       if (typeof r?.content === 'string') return r.content;
+      // Descript devuelve { raw: "..." }. Antes caía al fallback de abajo y se
+      // guardaba el JSON entero ({"raw":"...\n..."}) con comillas y saltos escapados.
+      if (typeof r?.raw === 'string') return r.raw;
       if (typeof r?.url === 'string') {
         const fr = await fetch(r.url);
         return await fr.text();

@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { buildSystem, callClaude } from '@/lib/generation';
+import { buildSystem, callClaude, cleanTranscript } from '@/lib/generation';
+
+// Minado y medianos leen el transcript completo y pueden tardar 2-3 min.
+// Explícito para que Vercel no corte la función antes de que Claude termine.
+export const maxDuration = 300;
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 
@@ -27,6 +31,7 @@ export async function POST(req) {
     // Load transcript
     const { data: ep } = await db.from('episodes').select('transcript, mapa').eq('id', episode_id).single();
     if (!ep?.transcript) return NextResponse.json({ error: "No transcript" }, { status: 400 });
+    const transcript = cleanTranscript(ep.transcript);
 
     let result;
     const updates = {};
@@ -35,7 +40,7 @@ export async function POST(req) {
     // Upload transcript → mapa + 20 ángulos
     if (phase === 'angles') {
       const system = await buildSystem(['adn', 'mapa-angulos']);
-      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
+      const tx = transcript.substring(0, TRANSCRIPT_CAP);
       result = await callClaude(
         `Analiza esta transcripción y genera el mapa del episodio + 20 ángulos interesantes.
 
@@ -102,7 +107,7 @@ Responde SOLO con JSON válido:
     // Transcript → micro-content clips (con frase de inicio/cierre para Descript) + voz en off
     else if (phase === 'minado') {
       const system = await buildSystem(['adn', 'minado']);
-      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
+      const tx = transcript.substring(0, TRANSCRIPT_CAP);
       const anglesCtx = (selected_angles || []).map(a => `- ${a.titulo}`).join('\n');
 
       result = await callClaude(
@@ -157,7 +162,10 @@ Mínimo 3-5 momentos deben incluir a Daniela (dani: true).
 
 TRANSCRIPCIÓN:
 ${tx}`,
-        system
+        system,
+        // 15-20 clips × (cita + frase_inicio + frase_cierre + frase_iman…) ya rozaban
+        // los 8.192 tokens por defecto; si se pasa, el JSON queda cortado.
+        16000
       );
       updates.minado = result;
     }
@@ -258,7 +266,7 @@ ${tx}`,
       const system = await buildSystem(['adn', 'medianos']);
       // Transcript completo con timestamps — el modelo necesita ver las marcas
       // para proponer rangos, incluyendo tramos del final del episodio.
-      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
+      const tx = transcript.substring(0, TRANSCRIPT_CAP);
       const mapaCtx = mapa
         ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}\nTENSIONES: ${(mapa.tensiones || []).join(' | ')}`
         : '';
@@ -312,7 +320,7 @@ ${tx}`,
     // Guardar en episodes.medianos.
     else if (phase === 'medianos-desarrollo') {
       const system = await buildSystem(['adn', 'medianos']);
-      const tx = ep.transcript.substring(0, TRANSCRIPT_CAP);
+      const tx = transcript.substring(0, TRANSCRIPT_CAP);
       const seleccionados = body.candidatos_seleccionados || [];
       const mapaCtx = mapa
         ? `TESIS: ${mapa.tesis || ''}\nDATOS: ${(mapa.datos_duros || []).join(', ')}\nIDEAS: ${(mapa.ideas || []).join(' | ')}`

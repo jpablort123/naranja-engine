@@ -33,7 +33,14 @@ export const MINADO_CATS = {
 // ═══ API HELPER ═══
 export async function api(path, opts) {
   const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
-  return r.json();
+  // Si Vercel corta la función (timeout 504) devuelve texto, no JSON. Antes r.json()
+  // tiraba una excepción que nadie atrapaba y el flujo quedaba congelado en silencio.
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch {
+    const why = r.status === 504 ? "el servidor tardó demasiado y cortó (timeout)" : text.slice(0, 160);
+    return { error: `HTTP ${r.status}: ${why}` };
+  }
 }
 
 // Retry helper para llamadas a endpoints que a veces tumban por cold start del

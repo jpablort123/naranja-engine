@@ -967,8 +967,9 @@ function MicroCard({ m, i, episodeId, isSel, hasDescript, toggleSel, feedback, s
 // Curación de micros + integración Descript. Cada clip trae frase_inicio / frase_cierre
 // (payload de corte, oculto por defecto). El "gancho" es lo que domina la tarjeta;
 // selección con checkbox y barra sticky "Generar en Descript" con confirmación de créditos.
-function MinadoTab({ ep, phase, onUpdate, onLearn }) {
+function MinadoTab({ ep, phase, onUpdate, onLearn, genError }) {
   const loading = phase === "minado" || phase === "angles" || phase === "contenido";
+  const [genMin, setGenMin] = useState(false); const [genMinErr, setGenMinErr] = useState(null);
   const minado = ep.minado;
   const momentos = minado?.momentos || minado || [];
   const [fb, setFb] = useState({}); const [applying, setApplying] = useState(false); const [applied, setApplied] = useState(false);
@@ -1016,7 +1017,34 @@ function MinadoTab({ ep, phase, onUpdate, onLearn }) {
     return { ok: true, enqueued: r.enqueued, skipped: r.skipped };
   };
 
-  if (loading || !momentos.length) return <div className="rounded-xl border border-stone-200 bg-white p-5"><h3 className="font-semibold text-[15px] text-stone-800 mb-3">⛏️ Micro-contenido para redes</h3><Skel n={6} /></div>;
+  // Generar (o reintentar) solo el minado, sin regenerar títulos ni descripciones.
+  const generateMinado = async () => {
+    setGenMin(true); setGenMinErr(null);
+    const selectedAngles = (ep.selected_ideas || []).map(i => (ep.ideas || [])[i]).filter(Boolean);
+    let res;
+    try { res = await generate({ episode_id: ep.id, phase: "minado", selected_angles: selectedAngles }); }
+    catch (e) { res = { error: e.message || "Error de red" }; }
+    const r = res?.result;
+    if (r && (Array.isArray(r) ? r.length : r.momentos?.length)) onUpdate({ minado: r });
+    else setGenMinErr(res?.error || "La generación no devolvió clips.");
+    setGenMin(false);
+  };
+
+  if (loading || genMin) return <div className="rounded-xl border border-stone-200 bg-white p-5"><h3 className="font-semibold text-[15px] text-stone-800 mb-1">⛏️ Micro-contenido para redes</h3>{genMin && <p className="text-xs text-orange-500 mb-3 flex items-center gap-1"><Loader2 size={12} className="animate-spin" /> Generando minado… lee el episodio completo, tarda 2-3 minutos.</p>}<Skel n={6} /></div>;
+
+  if (!momentos.length) {
+    const err = genMinErr || (genError?.epId === ep.id ? genError.msg : null);
+    return (
+      <div className="rounded-xl border border-stone-200 bg-white p-5">
+        <h3 className="font-semibold text-[15px] text-stone-800 mb-1">⛏️ Micro-contenido para redes</h3>
+        <p className="text-sm text-stone-500 mb-4">Este episodio todavía no tiene minado.</p>
+        {err && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><b>La última generación falló:</b> {err}</div>}
+        <button onClick={generateMinado} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white hover:opacity-90" style={{ background: O }}>
+          <Sparkles size={14} /> {err ? "Reintentar minado" : "Generar minado"}
+        </button>
+      </div>
+    );
+  }
 
   // Piezas para enviar a la Parrilla — los clips de minado entran como 'reel' por defecto
   const parrillaPieces = momentos.map((m, i) => ({
@@ -1649,6 +1677,7 @@ export default function Home() {
   const [phase, setPhase] = useState(null); const [mapaOpen, setMapaOpen] = useState(false);
   const [learnings, setLearnings] = useState([]); const [loadingEps, setLoadingEps] = useState(true);
   const [genContent, setGenContent] = useState(false);
+  const [minadoError, setMinadoError] = useState(null); // { epId, msg } del último minado fallido
   const [activeView, setActiveView] = useState(SHOW_ESTRATEGIA ? "radar" : "inicio"); // radar | publico | inicio | podcast | newsletter | newsletter_workspace | workspace | learnings | protocolos | fixture | parrilla
   const [parrillaInboxCount, setParrillaInboxCount] = useState(0);
   const [podcastExpanded, setPodcastExpanded] = useState(true);
@@ -1870,10 +1899,14 @@ export default function Home() {
     }
 
     // Phase 3: Minado (parallel-ish, uses transcript)
-    setPhase("minado");
-    const r3 = await generate({ episode_id: ep.id, phase: "minado", selected_angles: selectedAngles });
+    setPhase("minado"); setMinadoError(null);
+    let r3;
+    try { r3 = await generate({ episode_id: ep.id, phase: "minado", selected_angles: selectedAngles }); }
+    catch (e) { r3 = { error: e.message || "Error de red" }; }
     if (r3.result) {
       setEps(prev => prev.map(e => e.id === ep.id ? { ...e, minado: r3.result } : e));
+    } else if (r3.error) {
+      setMinadoError({ epId: ep.id, msg: r3.error });
     }
 
     setPhase("done"); setGenContent(false);
@@ -2348,7 +2381,7 @@ export default function Home() {
             {tab === "episodio" && <ContenidoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} onGenerate={generateContent} generatingContent={genContent} />}
             {tab === "reels" && <ReelsTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "intros" && <IntrosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
-            {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} />}
+            {tab === "minado" && <MinadoTab ep={ep} phase={phase} onUpdate={updateEp} onLearn={addLearning} genError={minadoError} />}
             {tab === "medianos" && <MedianosTab ep={ep} onUpdate={updateEp} onLearn={addLearning} />}
             {tab === "linaje" && <LineageTab episode={ep} onGoToWorkshopTab={setTab} />}
           </div>
